@@ -22,7 +22,6 @@ def load_all_sheets(url):
     for sheet_name in xls.sheet_names:
         df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
         try:
-            # Header logic
             months_row = df_raw.iloc[0, 2:].ffill().tolist()
             weeks_row = df_raw.iloc[1, 2:].tolist()
             cols = ['Ward', 'Total'] + [f"{m}_{w}" for m, w in zip(months_row, weeks_row)]
@@ -30,7 +29,6 @@ def load_all_sheets(url):
             data_only = df_raw.iloc[2:].copy()
             data_only.columns = cols[:len(data_only.columns)]
             
-            # Split 2025 and 2026 data
             ward_a_idx = data_only[data_only['Ward'] == 'A'].index.tolist()
             if len(ward_a_idx) >= 2:
                 df_25 = data_only.loc[ward_a_idx[0]:ward_a_idx[1]-2].copy()
@@ -60,7 +58,7 @@ def draw_bar_chart(data, x_col, y_col, colors):
 
 # --- MAIN APP ---
 try:
-    with st.spinner("डेटा लोड होत आहे..."):
+    with st.spinner("Loading data..."):
         all_data = load_all_sheets(DEFAULT_GSHEET_URL)
     
     if all_data:
@@ -72,10 +70,10 @@ try:
 
         for i, sheet in enumerate(sheet_names):
             with tabs[i]:
-                # --- Filters INSIDE each tab ---
+                # --- Filter per Tab (Each tab has its own key) ---
                 f1, f2, _ = st.columns([2, 2, 6])
-                sel_month = f1.selectbox(f"Select Month ({sheet})", month_opts, index=3, key=f"m_{sheet}")
-                sel_week = f2.selectbox(f"Select Week ({sheet})", week_opts, index=2, key=f"w_{sheet}")
+                sel_month = f1.selectbox(f"Select Month ({sheet})", month_opts, index=3, key=f"m_sel_{sheet}")
+                sel_week = f2.selectbox(f"Select Week ({sheet})", week_opts, index=2, key=f"w_sel_{sheet}")
                 
                 st.markdown("---")
                 
@@ -87,7 +85,7 @@ try:
                 target_col = f"{sel_month}_{sel_week}"
                 months_upto = month_opts[:m_idx+1]
 
-                # Headers
+                # Headers matching your layout image
                 h1, h2, h3, h4 = st.columns([1, 2.5, 2.5, 2.5])
                 h1.write("**Ward**")
                 h2.write(f"**Monthly** ({prev_month} vs {sel_month} '26)")
@@ -99,22 +97,22 @@ try:
                 for ward in wards:
                     if ward in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']: continue
                     
-                    # 1. Monthly Logic
+                    # 1. Monthly Calc
                     curr_m_cols = [c for c in df_26.columns if c.startswith(sel_month)]
                     prev_m_cols = [c for c in df_26.columns if c.startswith(prev_month)]
                     v_curr_m = df_26[df_26['Ward'] == ward][curr_m_cols].values.sum()
                     v_prev_m = df_26[df_26['Ward'] == ward][prev_m_cols].values.sum()
                     
-                    # 2. Yearly Logic
+                    # 2. Yearly Calc
                     v_25_wk = df_25[df_25['Ward'] == ward][target_col].values[0] if target_col in df_25.columns else 0
                     v_26_wk = df_26[df_26['Ward'] == ward][target_col].values[0] if target_col in df_26.columns else 0
                     
-                    # 3. Cumulative Logic
+                    # 3. Cumulative Calc
                     cum_cols = [c for c in df_26.columns if any(c.startswith(m) for m in months_upto)]
                     v_25_cum = df_25[df_25['Ward'] == ward][cum_cols].values.sum()
                     v_26_cum = df_26[df_26['Ward'] == ward][cum_cols].values.sum()
 
-                    # Row Layout
+                    # Layout Row
                     c_ward, c_m, c_y, c_c = st.columns([1, 2.5, 2.5, 2.5])
                     
                     c_ward.subheader(ward)
@@ -127,8 +125,8 @@ try:
                     df_y = pd.DataFrame({'Year': ['2025', '2026'], 'Cases': [v_25_wk, v_26_wk]})
                     c_y.altair_chart(draw_bar_chart(df_y, 'Cases', 'Year', ['#FFD8B1', '#FF7F0E']), use_container_width=True)
                     
-                    # Cumulative Graph
-                    df_c = pd.DataFrame({'Period': [''25 Total', ''26 Total'], 'Cases': [v_25_cum, v_26_cum]})
+                    # Cumulative Graph (Fixed the syntax error here)
+                    df_c = pd.DataFrame({'Period': ["'25 Total", "'26 Total"], 'Cases': [v_25_cum, v_26_cum]})
                     c_c.altair_chart(draw_bar_chart(df_c, 'Cases', 'Period', ['#B2E0B2', '#2CA02C']), use_container_width=True)
 
 except Exception as e:
