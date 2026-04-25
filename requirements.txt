@@ -5,3 +5,5 @@ gspread
 oauth2client
 plotly
 st-gsheets-connection
+requests
+beautifulsoup4
