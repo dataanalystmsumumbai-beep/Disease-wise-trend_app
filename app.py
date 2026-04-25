@@ -1,4 +1,6 @@
+import pandas as pd
 import io
+import xlsxwriter
 
 # --- New Function to Create Formatted Excel ---
 def create_formatted_excel(data_dict):
