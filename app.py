@@ -2,25 +2,37 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from io import BytesIO
-from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="IHIP Smart Dashboard", layout="wide")
+st.set_page_config(page_title="IHIP Dashboard", layout="wide")
 
-st.title("📊 IHIP Dynamic Dashboard")
+st.title("📊 IHIP Smart Dashboard")
 
-# ---------------- SIDEBAR ----------------
-st.sidebar.header("🔗 Data Source")
+# ---------------- INPUT ----------------
+st.sidebar.header("🔗 Google Sheet Setup")
 
-sheet_url = st.sidebar.text_input("Google Sheet URL")
+sheet_id = st.sidebar.text_input("Enter Google Sheet ID")
+
+gid_input = st.sidebar.text_area(
+    "Enter GIDs (one per line)",
+    placeholder="Example:\n0\n123456789\n987654321"
+)
 
 uploaded_file = st.sidebar.file_uploader("Or Upload Excel", type=["xlsx"])
 
 # ---------------- LOAD FUNCTIONS ----------------
 @st.cache_data
-def load_gsheet(url):
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(spreadsheet=url)
-    return {"GoogleSheet": df}
+def load_google_tabs(sheet_id, gids):
+    data = {}
+
+    for gid in gids:
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        try:
+            df = pd.read_csv(url)
+            data[f"Sheet_{gid}"] = df
+        except:
+            continue
+
+    return data
 
 @st.cache_data
 def load_excel(file):
@@ -30,41 +42,34 @@ def load_excel(file):
         data[sheet] = pd.read_excel(file, sheet_name=sheet)
     return data
 
-# ---------------- PROCESS FUNCTION ----------------
+# ---------------- PROCESS ----------------
 def process_data(df):
     df = df.copy()
 
-    numeric_cols = df.select_dtypes(include="number").columns
-    df[numeric_cols] = df[numeric_cols].fillna(0)
+    if "Ward" not in df.columns:
+        return df
 
-    if "Ward" in df.columns:
-        df_melt = df.melt(id_vars=["Ward"], var_name="Month_Week", value_name="Value")
+    df_melt = df.melt(id_vars=["Ward"], var_name="Month_Week", value_name="Value")
 
-        df_melt["Month"] = df_melt["Month_Week"].str.extract(r'([A-Za-z]+)')
-        df_melt["Week"] = df_melt["Month_Week"].str.extract(r'(Week\s*\d+)')
+    df_melt["Month"] = df_melt["Month_Week"].str.extract(r'([A-Za-z]+)')
+    df_melt["Week"] = df_melt["Month_Week"].str.extract(r'(Week\s*\d+)')
 
-        return df_melt
+    return df_melt
 
-    return df
-
-# ---------------- EXCEL EXPORT ----------------
+# ---------------- EXPORT ----------------
 def create_excel(data_dict):
     output = BytesIO()
-
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for name, df in data_dict.items():
             df.to_excel(writer, sheet_name=name, index=False)
-
     return output.getvalue()
 
-# ---------------- LOAD DATA ----------------
+# ---------------- LOAD ----------------
 data_dict = {}
 
-if sheet_url:
-    try:
-        data_dict = load_gsheet(sheet_url)
-    except:
-        st.error("❌ Google Sheet load failed")
+if sheet_id and gid_input:
+    gids = [g.strip() for g in gid_input.split("\n") if g.strip()]
+    data_dict = load_google_tabs(sheet_id, gids)
 
 if uploaded_file:
     data_dict = load_excel(uploaded_file)
@@ -72,132 +77,86 @@ if uploaded_file:
 # ---------------- MAIN ----------------
 if data_dict:
 
-    tab_names = list(data_dict.keys())
-    tabs = st.tabs(tab_names)
-
+    tabs = st.tabs(list(data_dict.keys()))
     final_export = {}
 
     for i, tab in enumerate(tabs):
         with tab:
-            st.subheader(f"📄 {tab_names[i]}")
+            name = list(data_dict.keys())[i]
+            df = data_dict[name]
 
-            df = data_dict[tab_names[i]]
-
-            if df.empty:
-                st.warning("No data available")
-                continue
-
+            st.subheader(name)
             st.dataframe(df, use_container_width=True)
 
             df_proc = process_data(df)
 
             if "Ward" in df_proc.columns:
 
-                # ---------------- FILTERS ----------------
-                wards = df_proc["Ward"].dropna().unique()
+                wards = df_proc["Ward"].unique()
                 months = df_proc["Month"].dropna().unique()
 
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    selected_ward = st.multiselect("Select Ward", wards, default=wards)
+                    sel_ward = st.multiselect("Ward", wards, default=wards)
 
                 with col2:
-                    selected_month = st.multiselect("Select Month", months, default=months)
+                    sel_month = st.multiselect("Month", months, default=months)
 
-                df_filt = df_proc[
-                    (df_proc["Ward"].isin(selected_ward)) &
-                    (df_proc["Month"].isin(selected_month))
+                df_f = df_proc[
+                    (df_proc["Ward"].isin(sel_ward)) &
+                    (df_proc["Month"].isin(sel_month))
                 ]
 
-                # ---------------- MONTH COMPARISON ----------------
-                st.markdown("### 📊 Month Comparison")
+                # ---------------- MONTH COMP ----------------
+                pivot = df_f.pivot_table(index="Ward", columns="Month", values="Value", aggfunc="sum").fillna(0)
 
-                pivot = df_filt.pivot_table(
-                    index="Ward",
-                    columns="Month",
-                    values="Value",
-                    aggfunc="sum"
-                ).fillna(0)
+                if len(pivot.columns) >= 2:
+                    m1, m2 = pivot.columns[-2], pivot.columns[-1]
 
-                months_list = list(pivot.columns)
+                    comp = pivot[[m1, m2]].reset_index()
 
-                if len(months_list) >= 2:
-                    m1, m2 = months_list[-2], months_list[-1]
-
-                    compare_df = pivot[[m1, m2]].reset_index()
-
-                    fig1 = px.bar(
-                        compare_df,
-                        x="Ward",
-                        y=[m1, m2],
-                        barmode="group",
-                        title=f"{m1} vs {m2}"
+                    st.markdown("### 📊 Month Comparison")
+                    st.plotly_chart(
+                        px.bar(comp, x="Ward", y=[m1, m2], barmode="group"),
+                        use_container_width=True
                     )
 
-                    st.plotly_chart(fig1, use_container_width=True)
+                    comp["% Change"] = ((comp[m2] - comp[m1]) / comp[m1].replace(0,1)) * 100
 
-                    # % Change
-                    compare_df["% Change"] = (
-                        (compare_df[m2] - compare_df[m1]) /
-                        compare_df[m1].replace(0, 1)
-                    ) * 100
-
-                    st.markdown("### 📈 % Increase / Decrease")
-
-                    fig2 = px.bar(
-                        compare_df,
-                        x="Ward",
-                        y="% Change",
-                        title="% Change"
+                    st.markdown("### 📈 % Change")
+                    st.plotly_chart(
+                        px.bar(comp, x="Ward", y="% Change"),
+                        use_container_width=True
                     )
 
-                    st.plotly_chart(fig2, use_container_width=True)
+                    final_export[name] = comp
 
-                    final_export[tab_names[i]] = compare_df
+                # ---------------- WEEK COMP ----------------
+                week_pivot = df_f.pivot_table(index="Ward", columns="Week", values="Value", aggfunc="sum").fillna(0)
 
-                # ---------------- WEEK COMPARISON ----------------
-                st.markdown("### 📅 Week Comparison")
+                if len(week_pivot.columns) >= 2:
+                    w1, w2 = week_pivot.columns[-2], week_pivot.columns[-1]
 
-                week_pivot = df_filt.pivot_table(
-                    index="Ward",
-                    columns="Week",
-                    values="Value",
-                    aggfunc="sum"
-                ).fillna(0)
+                    wk = week_pivot[[w1, w2]].reset_index()
 
-                weeks_list = list(week_pivot.columns)
-
-                if len(weeks_list) >= 2:
-                    w1, w2 = weeks_list[-2], weeks_list[-1]
-
-                    week_compare = week_pivot[[w1, w2]].reset_index()
-
-                    fig3 = px.bar(
-                        week_compare,
-                        x="Ward",
-                        y=[w1, w2],
-                        barmode="group",
-                        title=f"{w1} vs {w2}"
+                    st.markdown("### 📅 Week Comparison")
+                    st.plotly_chart(
+                        px.bar(wk, x="Ward", y=[w1, w2], barmode="group"),
+                        use_container_width=True
                     )
-
-                    st.plotly_chart(fig3, use_container_width=True)
 
             else:
-                final_export[tab_names[i]] = df
+                final_export[name] = df
 
     # ---------------- DOWNLOAD ----------------
-    st.markdown("---")
-    st.markdown("## 📥 Download Report")
-
-    excel_file = create_excel(final_export)
+    st.markdown("## 📥 Download")
 
     st.download_button(
-        label="⬇ Download Excel Report",
-        data=excel_file,
-        file_name="IHIP_Report.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "Download Excel",
+        data=create_excel(final_export),
+        file_name="IHIP_Report.xlsx"
     )
 
 else:
-    st.info("👉 Enter Google Sheet link OR upload Excel file")
+    st.info("Enter Sheet ID + GIDs OR upload Excel")
