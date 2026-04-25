@@ -1,38 +1,51 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import requests
+from bs4 import BeautifulSoup
 from io import BytesIO
 
 st.set_page_config(page_title="IHIP Report", layout="wide")
 
-st.title("📄 IHIP Analytical Report")
+st.title("📊 IHIP Full Report (No Credentials)")
 
 # ---------------- INPUT ----------------
-st.sidebar.header("🔗 Google Sheet")
-
-sheet_id = st.sidebar.text_input("Sheet ID")
-
-gid_input = st.sidebar.text_area(
-    "GIDs (one per line)",
-    placeholder="0\n123456789"
+sheet_url = st.text_input(
+    "Paste Google Sheet Link",
+    "https://docs.google.com/spreadsheets/d/11-ZeoBvixvY_ujLO8_9Vlze2jmGC4CooTWjvd2INX-4/edit"
 )
 
-# ---------------- LOAD ----------------
+# ---------------- EXTRACT SHEET ID ----------------
+def get_sheet_id(url):
+    return url.split("/d/")[1].split("/")[0]
+
+# ---------------- GET ALL TABS ----------------
 @st.cache_data
-def load_data(sheet_id, gids):
-    data = {}
-    for gid in gids:
-        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-        try:
-            df = pd.read_csv(url)
-            data[f"Sheet_{gid}"] = df
-        except:
-            continue
-    return data
+def get_all_tabs(sheet_url):
+    res = requests.get(sheet_url)
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    tabs = {}
+    for link in soup.select("a"):
+        href = link.get("href", "")
+        if "gid=" in href:
+            gid = href.split("gid=")[-1]
+            name = link.text.strip()
+            if name:
+                tabs[name] = gid
+
+    return tabs
+
+# ---------------- LOAD CSV ----------------
+@st.cache_data
+def load_sheet(sheet_id, gid):
+    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    return pd.read_csv(csv_url)
 
 # ---------------- PROCESS ----------------
 def process(df):
-    df = df.copy()
+    if "Ward" not in df.columns:
+        return df
 
     df_melt = df.melt(id_vars=["Ward"], var_name="Month_Week", value_name="Value")
     df_melt["Month"] = df_melt["Month_Week"].str.extract(r'([A-Za-z]+)')
@@ -49,105 +62,116 @@ def export_excel(data_dict):
     return output.getvalue()
 
 # ---------------- MAIN ----------------
-if sheet_id and gid_input:
+if sheet_url:
 
-    gids = [g.strip() for g in gid_input.split("\n") if g.strip()]
-    data_dict = load_data(sheet_id, gids)
+    try:
+        sheet_id = get_sheet_id(sheet_url)
+        tabs_info = get_all_tabs(sheet_url)
 
-    tabs = st.tabs(list(data_dict.keys()))
-    final_export = {}
+        if not tabs_info:
+            st.error("❌ No tabs found (check sharing settings)")
+        else:
+            tab_names = list(tabs_info.keys())
+            tabs = st.tabs(tab_names)
 
-    for i, tab in enumerate(tabs):
-        with tab:
-            name = list(data_dict.keys())[i]
-            df = data_dict[name]
+            final_export = {}
 
-            st.header(f"📄 {name}")
+            for i, tab in enumerate(tabs):
+                with tab:
+                    name = tab_names[i]
+                    gid = tabs_info[name]
 
-            df_proc = process(df)
+                    df = load_sheet(sheet_id, gid)
 
-            # ---------------- MONTH COMP ----------------
-            pivot = df_proc.pivot_table(
-                index="Ward",
-                columns="Month",
-                values="Value",
-                aggfunc="sum"
-            ).fillna(0)
+                    st.header(f"📄 {name}")
 
-            months = list(pivot.columns)
+                    if df.empty:
+                        st.warning("No data")
+                        continue
 
-            if len(months) >= 2:
-                m1, m2 = months[-2], months[-1]
+                    df_proc = process(df)
 
-                comp = pivot[[m1, m2]].reset_index()
-                comp["Change"] = comp[m2] - comp[m1]
-                comp["% Change"] = (comp["Change"] / comp[m1].replace(0,1)) * 100
+                    if "Ward" in df_proc.columns:
 
-                st.subheader(f"📊 {m1} vs {m2} Comparison Table")
-                st.dataframe(comp, use_container_width=True)
+                        pivot = df_proc.pivot_table(
+                            index="Ward",
+                            columns="Month",
+                            values="Value",
+                            aggfunc="sum"
+                        ).fillna(0)
 
-                fig1 = px.bar(comp, x="Ward", y=[m1, m2], barmode="group")
-                st.plotly_chart(fig1, use_container_width=True)
+                        months = list(pivot.columns)
 
-                # ---------------- % CHANGE ----------------
-                st.subheader("📈 % Increase / Decrease")
+                        if len(months) >= 2:
+                            m1, m2 = months[-2], months[-1]
 
-                fig2 = px.bar(
-                    comp,
-                    x="Ward",
-                    y="% Change",
-                    color="% Change",
-                    color_continuous_scale=["red", "green"]
-                )
-                st.plotly_chart(fig2, use_container_width=True)
+                            comp = pivot[[m1, m2]].reset_index()
+                            comp["Change"] = comp[m2] - comp[m1]
+                            comp["% Change"] = (comp["Change"] / comp[m1].replace(0,1)) * 100
 
-                # ---------------- TOP / BOTTOM ----------------
-                st.subheader("🏆 Performance")
+                            st.subheader(f"📊 {m1} vs {m2}")
+                            st.dataframe(comp)
 
-                top5 = comp.sort_values("% Change", ascending=False).head(5)
-                bottom5 = comp.sort_values("% Change").head(5)
+                            st.plotly_chart(
+                                px.bar(comp, x="Ward", y=[m1, m2], barmode="group"),
+                                use_container_width=True
+                            )
 
-                col1, col2 = st.columns(2)
+                            st.subheader("📈 % Change")
+                            st.plotly_chart(
+                                px.bar(comp, x="Ward", y="% Change", color="% Change",
+                                       color_continuous_scale=["red", "green"]),
+                                use_container_width=True
+                            )
 
-                with col1:
-                    st.markdown("### 🔝 Top 5 Wards")
-                    st.dataframe(top5)
+                            # Top / Bottom
+                            col1, col2 = st.columns(2)
 
-                with col2:
-                    st.markdown("### 🔻 Bottom 5 Wards")
-                    st.dataframe(bottom5)
+                            col1.write("🔝 Top 5")
+                            col1.dataframe(comp.sort_values("% Change", ascending=False).head(5))
 
-                final_export[name] = comp
+                            col2.write("🔻 Bottom 5")
+                            col2.dataframe(comp.sort_values("% Change").head(5))
 
-            # ---------------- WEEK COMP ----------------
-            week_pivot = df_proc.pivot_table(
-                index="Ward",
-                columns="Week",
-                values="Value",
-                aggfunc="sum"
-            ).fillna(0)
+                            final_export[name] = comp
 
-            weeks = list(week_pivot.columns)
+                        # WEEK
+                        week_pivot = df_proc.pivot_table(
+                            index="Ward",
+                            columns="Week",
+                            values="Value",
+                            aggfunc="sum"
+                        ).fillna(0)
 
-            if len(weeks) >= 2:
-                w1, w2 = weeks[-2], weeks[-1]
+                        weeks = list(week_pivot.columns)
 
-                wk = week_pivot[[w1, w2]].reset_index()
+                        if len(weeks) >= 2:
+                            w1, w2 = weeks[-2], weeks[-1]
 
-                st.subheader(f"📅 {w1} vs {w2} Week Comparison")
+                            wk = week_pivot[[w1, w2]].reset_index()
 
-                fig3 = px.bar(wk, x="Ward", y=[w1, w2], barmode="group")
-                st.plotly_chart(fig3, use_container_width=True)
+                            st.subheader(f"📅 {w1} vs {w2}")
+                            st.plotly_chart(
+                                px.bar(wk, x="Ward", y=[w1, w2], barmode="group"),
+                                use_container_width=True
+                            )
 
-    # ---------------- DOWNLOAD ----------------
-    st.markdown("---")
-    st.subheader("📥 Download Report")
+                    else:
+                        st.dataframe(df)
+                        final_export[name] = df
 
-    st.download_button(
-        "Download Excel",
-        data=export_excel(final_export),
-        file_name="IHIP_Report.xlsx"
-    )
+            # DOWNLOAD
+            st.markdown("---")
+            st.subheader("📥 Download Report")
+
+            st.download_button(
+                "Download Excel",
+                data=export_excel(final_export),
+                file_name="IHIP_Report.xlsx"
+            )
+
+    except Exception as e:
+        st.error(f"Error: {e}")
 
 else:
-    st.info("Enter Sheet ID and GIDs")
+    st.info("Paste Google Sheet link")
