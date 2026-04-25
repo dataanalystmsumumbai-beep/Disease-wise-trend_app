@@ -4,18 +4,15 @@ import altair as alt
 
 st.set_page_config(page_title="Disease Dashboard", layout="wide")
 
-st.title("Ward-wise Comparison Dashboard (Data 2 Style)")
-
-# --- १. फाईल अपलोडर (कोणतीही डिफॉल्ट लिंक नाही) ---
-uploaded_file = st.file_uploader("तुमची एक्सेल फाईल (data for app.xlsx) इथे अपलोड करा", type=["xlsx"])
-
-def load_data(file):
+# --- DATA LOADING (Direct from your file structure) ---
+@st.cache_data
+def load_all_data(file):
     xls = pd.ExcelFile(file, engine='openpyxl')
     sheets_dict = {}
+    
     for sheet_name in xls.sheet_names:
         df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-        
-        # Header processing
+        # Header processing for 'data for app' style
         months_row = df_raw.iloc[0, 2:].ffill().tolist()
         weeks_row = df_raw.iloc[1, 2:].tolist()
         cols = ['Ward', 'Total'] + [f"{m}_{w}" for m, w in zip(months_row, weeks_row)]
@@ -23,15 +20,15 @@ def load_data(file):
         data_only = df_raw.iloc[2:].copy()
         data_only.columns = cols[:len(data_only.columns)]
         
-        # Split 2025 and 2026 data based on 'A' ward position
-        ward_a_indices = data_only[data_only['Ward'] == 'A'].index.tolist()
-        if len(ward_a_indices) >= 2:
-            df_25 = data_only.loc[ward_a_indices[0]:ward_a_indices[1]-2].copy()
-            df_26 = data_only.loc[ward_a_indices[1]-1:].copy()
+        # Logic to split 2025 and 2026 data
+        ward_a_idx = data_only[data_only['Ward'] == 'A'].index.tolist()
+        if len(ward_a_idx) >= 2:
+            df_25 = data_only.loc[ward_a_idx[0]:ward_a_idx[1]-2].copy()
+            df_26 = data_only.loc[ward_a_idx[1]-1:].copy()
         else:
-            df_25 = data_only.iloc[:56].copy()
-            df_26 = data_only.iloc[56:].copy()
+            df_25, df_26 = data_only.iloc[:56], data_only.iloc[56:]
             
+        # Convert to numeric
         for c in data_only.columns[1:]:
             df_25[c] = pd.to_numeric(df_25[c], errors='coerce').fillna(0)
             df_26[c] = pd.to_numeric(df_26[c], errors='coerce').fillna(0)
@@ -39,82 +36,89 @@ def load_data(file):
         sheets_dict[sheet_name] = {'25': df_25, '26': df_26}
     return sheets_dict
 
-# --- २. ग्राफ फंक्शन (Data 2 फोटोप्रमाणे दोन बार्सची तुलना) ---
-def create_comparison_chart(val_1, val_2, label_1, label_2, colors):
-    chart_data = pd.DataFrame({
-        'Category': [label_1, label_2],
-        'Value': [val_1, val_2]
+# --- MINIMAL COMPARISON CHART (Photo Style) ---
+def create_chart(v1, v2, label1, label2, colors):
+    source = pd.DataFrame({
+        'Category': [label1, label2],
+        'Value': [v1, v2]
     })
-    
-    chart = alt.Chart(chart_data).mark_bar(height=15).encode(
-        x=alt.X('Value:Q', axis=None), # No numbers on axis
-        y=alt.Y('Category:N', axis=alt.Axis(title=None, labelFontWeight='bold'), sort=None),
+    chart = alt.Chart(source).mark_bar(height=15).encode(
+        x=alt.X('Value:Q', axis=None),
+        y=alt.Y('Category:N', axis=alt.Axis(title=None, ticks=False, domain=False), sort=None),
         color=alt.Color('Category:N', scale=alt.Scale(range=colors), legend=None),
         tooltip=['Category', 'Value']
     ).properties(height=60)
-    
     return chart.configure_view(strokeWidth=0)
 
-# --- ३. मुख्य डिस्प्ले लॉजिक ---
-if uploaded_file:
-    data_all = load_data(uploaded_file)
-    sheet_names = list(data_all.keys())
-    
-    # टॅब्स तयार करणे (Malaria, Dengue etc.)
-    tabs = st.tabs(sheet_names)
-    
-    month_opts = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    week_opts = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"]
+# --- MAIN UI ---
+st.title("Ward-wise Disease Trends")
+uploaded_file = st.file_uploader("Upload 'data for app.xlsx' here", type="xlsx")
 
-    for i, name in enumerate(sheet_names):
+if uploaded_file:
+    data_store = load_all_data(uploaded_file)
+    tabs = st.tabs(list(data_store.keys()))
+    
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    weeks = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"]
+
+    for i, sheet in enumerate(data_store.keys()):
         with tabs[i]:
-            # --- स्वतंत्र फिल्टर्स (Independent for each tab) ---
+            # --- 1. INDEPENDENT FILTERS PER TAB ---
             col_f1, col_f2 = st.columns(2)
-            sel_m = col_f1.selectbox(f"Month Select", month_opts, index=3, key=f"m_{name}")
-            sel_w = col_f2.selectbox(f"Week Select", week_opts, index=2, key=f"w_{name}")
+            sel_m = col_f1.selectbox("Select Month", months, index=3, key=f"m_{sheet}")
+            sel_w = col_f2.selectbox("Select Week", weeks, index=2, key=f"w_{sheet}")
             
-            st.markdown("---")
+            df_25 = data_store[sheet]['25']
+            df_26 = data_store[sheet]['26']
             
-            df_25 = data_all[name]['25']
-            df_26 = data_all[name]['26']
-            
-            # कालखंड ठरवणे
-            m_idx = month_opts.index(sel_m)
-            prev_m = month_opts[m_idx-1] if m_idx > 0 else "Jan"
+            # Logic: Determine Columns
+            m_idx = months.index(sel_m)
+            prev_m = months[m_idx-1] if m_idx > 0 else "Jan"
             target_col = f"{sel_m}_{sel_w}"
-            cum_months = month_opts[:m_idx+1]
-            
-            # Headers (Data 2 लेआउटप्रमाणे)
-            h_ward, h_1, h_2, h_3 = st.columns([1, 3, 3, 3])
-            h_ward.write("**Ward**")
-            h_1.write(f"**Monthly Comparison** ({prev_m} vs {sel_m} '26)")
-            h_2.write(f"**Yearly Comparison** ({sel_m} {sel_w} '25 vs '26)")
-            h_3.write(f"**Cumulative** (Jan to {sel_m} '25 vs '26)")
+            cum_months = months[:m_idx+1]
+
+            # --- 2. HEADER ROW (Data 2 Style) ---
+            st.markdown("---")
+            h_ward, h_mon, h_year, h_cum = st.columns([1, 2.5, 2.5, 2.5])
+            h_ward.markdown("**Ward**")
+            h_mon.markdown(f"**Monthly**<br>{prev_m} vs {sel_m} ('26)", unsafe_allow_html=True)
+            h_year.markdown(f"**Yearly**<br>{sel_m} {sel_w} ('25 vs '26)", unsafe_allow_html=True)
+            h_cum.markdown(f"**Cumulative**<br>Jan to {sel_m} ('25 vs '26)", unsafe_allow_html=True)
             st.divider()
 
-            # प्रत्येक वॉर्डसाठी रो (Row) तयार करणे
+            # --- 3. DATA ROWS ---
             wards = df_26['Ward'].dropna().unique()
             for ward in wards:
                 if ward in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']: continue
                 
-                # १. Monthly (Current Year only)
-                curr_m_cols = [c for c in df_26.columns if c.startswith(sel_m)]
-                prev_m_cols = [c for c in df_26.columns if c.startswith(prev_m)]
-                v_curr_m = df_26[df_26['Ward'] == ward][curr_m_cols].values.sum()
-                v_prev_m = df_26[df_26['Ward'] == ward][prev_m_cols].values.sum()
+                # Logic: Calculations
+                # Monthly Comparison (2026 data only)
+                c_curr = [c for c in df_26.columns if c.startswith(sel_m)]
+                c_prev = [c for c in df_26.columns if c.startswith(prev_m)]
+                v_curr_m = df_26[df_26['Ward'] == ward][c_curr].values.sum()
+                v_prev_m = df_26[df_26['Ward'] == ward][c_prev].values.sum()
                 
-                # २. Yearly Week (2025 vs 2026)
-                v_25_wk = df_25[df_25['Ward'] == ward][target_col].values[0] if target_col in df_25.columns else 0
-                v_26_wk = df_26[df_26['Ward'] == ward][target_col].values[0] if target_col in df_26.columns else 0
+                # Yearly Comparison (Week vs Week)
+                v_25_w = df_25[df_25['Ward'] == ward][target_col].values[0] if target_col in df_25.columns else 0
+                v_26_w = df_26[df_26['Ward'] == ward][target_col].values[0] if target_col in df_26.columns else 0
                 
-                # ३. Cumulative (2025 vs 2026)
-                cum_cols = [c for c in df_26.columns if any(c.startswith(m) for m in cum_months)]
-                v_25_cum = df_25[df_25['Ward'] == ward][cum_cols].values.sum()
-                v_26_cum = df_26[df_26['Ward'] == ward][cum_cols].values.sum()
+                # Cumulative (Sum of all weeks up to sel_m)
+                c_cum = [c for c in df_26.columns if any(c.startswith(m) for m in cum_months)]
+                v_25_c = df_25[df_25['Ward'] == ward][c_cum].values.sum()
+                v_26_c = df_26[df_26['Ward'] == ward][c_cum].values.sum()
 
-                # डिस्प्ले रो
-                c_ward, c_1, c_2, c_3 = st.columns([1, 3, 3, 3])
-                c_ward.subheader(ward)
+                # Display Row
+                r_ward, r_mon, r_year, r_cum = st.columns([1, 2.5, 2.5, 2.5])
+                r_ward.subheader(ward)
                 
-                # तिन्ही ग्राफ्स एका ओळीत
-                c_1.altair_chart
+                # Graph 1: Monthly (Blue)
+                r_mon.altair_chart(create_chart(v_prev_m, v_curr_m, prev_m, sel_m, ['#AEC7E8', '#1F77B4']), use_container_width=True)
+                
+                # Graph 2: Yearly (Orange)
+                r_year.altair_chart(create_chart(v_25_w, v_26_w, "2025", "2026", ['#FFBB78', '#FF7F0E']), use_container_width=True)
+                
+                # Graph 3: Cumulative (Green)
+                r_cum.altair_chart(create_chart(v_25_c, v_26_c, "2025", "2026", ['#98DF8A', '#2CA02C']), use_container_width=True)
+
+else:
+    st.info("Please upload your Excel file to begin.")
