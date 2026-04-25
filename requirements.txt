@@ -3,3 +3,5 @@ pandas
 openpyxl
 gspread
 oauth2client
+plotly
+st-gsheets-connection
