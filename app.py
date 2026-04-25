@@ -9,7 +9,6 @@ st.title("Disease-wise Trend Analysis")
 DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/11-ZeoBvixvY_ujLO8_9Vlze2jmGC4CooTWjvd2INX-4/edit"
 
 def get_xlsx_url(url):
-    # Convert edit link to xlsx export link to read all sheets
     if "/edit" in url:
         return url.split('/edit')[0] + "/export?format=xlsx"
     return url
@@ -30,20 +29,23 @@ else:
 
 if target_url:
     try:
-        with st.spinner('Reading all sheets from Google Sheet...'):
-            # Load the entire Excel file (all sheets)
+        with st.spinner('Reading all sheets and creating tabs...'):
+            # Load the entire Excel file
             excel_file = pd.ExcelFile(target_url, engine='openpyxl')
             sheet_names = excel_file.sheet_names
             
-            st.success(f"Successfully loaded {len(sheet_names)} sheets!")
-            
-            # Dropdown to select a specific sheet
-            selected_sheet = st.selectbox("Select a sheet to view:", sheet_names)
-            
-            if selected_sheet:
-                df = pd.read_excel(target_url, sheet_name=selected_sheet)
-                st.subheader(f"Data Preview: {selected_sheet}")
-                st.dataframe(df)
+            if sheet_names:
+                # Creating dynamic tabs based on sheet names
+                tabs = st.tabs(sheet_names)
+                
+                for i, sheet_name in enumerate(sheet_names):
+                    with tabs[i]:
+                        st.subheader(f"Data from Sheet: {sheet_name}")
+                        # Reading individual sheet data
+                        df = pd.read_excel(target_url, sheet_name=sheet_name)
+                        st.dataframe(df, use_container_width=True)
+            else:
+                st.warning("No sheets found in the linked Google Sheet.")
                 
     except Exception as e:
         st.error(f"Error: {e}")
