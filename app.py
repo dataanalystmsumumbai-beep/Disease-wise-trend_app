@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import io
+import numpy as np
 
 # Set page config
 st.set_page_config(page_title="Health Analysis Dashboard", layout="wide", initial_sidebar_state="expanded")
 
 # --- 1. Formatting Functions ---
 def format_pct(val):
+    if pd.isna(val) or np.isinf(val): return "0 %"
     if val == 0: return "0 %"
     val = val * 100
     if abs(val - round(val)) < 1e-9:
@@ -182,22 +184,27 @@ try:
                                         'Yearly %': t2_data[idx]['% Inc/Dec'], 'Cum %': t3_data[idx]['% Inc/Dec']})
                     df4 = display_table(t4_data, [])
 
-                # --- Formatted Excel Download ---
+                # --- Download Section with Fix for NAN/INF ---
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Adding nan_inf_to_errors option as a safety measure
+                with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
                     wb = writer.book
                     ws = wb.add_worksheet("Report")
-                    # Formats
                     h_fmt = wb.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1, 'align':'center'})
                     c_fmt = wb.add_format({'border':1, 'align':'center'})
                     t_fmt = wb.add_format({'bold':True, 'font_size':14, 'font_color':'#1F4E78'})
                     
                     def write_ws(df, start_row, title):
+                        # Clean dataframe for Excel: replace NaN with 0 and Inf with 0
+                        df_clean = df.replace([np.inf, -np.inf], 0).fillna(0)
+                        
                         ws.write(start_row, 0, title, t_fmt)
-                        for c, col in enumerate(df.columns): ws.write(start_row+2, c, col, h_fmt)
-                        for r, row in enumerate(df.values):
-                            for c, val in enumerate(row): ws.write(r+start_row+3, c, val, c_fmt)
-                        return start_row + len(df) + 6
+                        for c, col in enumerate(df_clean.columns): 
+                            ws.write(start_row+2, c, col, h_fmt)
+                        for r, row in enumerate(df_clean.values):
+                            for c, val in enumerate(row): 
+                                ws.write(r+start_row+3, c, val, c_fmt)
+                        return start_row + len(df_clean) + 6
 
                     curr_r = write_ws(df1, 0, "1. Monthly Comparison")
                     curr_r = write_ws(df2, curr_r, "2. Yearly Comparison")
