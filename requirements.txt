@@ -7,6 +7,4 @@ plotly
 st-gsheets-connection
 requests
 beautifulsoup4
-import pandas as pd
-import io
-import xlsxwriter  
+
