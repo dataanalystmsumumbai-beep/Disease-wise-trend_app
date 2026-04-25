@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Health Analysis Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# --- १. फॉरमॅटिंग फंक्शन्स ---
+# --- 1. Formatting Functions ---
 def format_pct(val):
     if val == 0: return "0 %"
     val = val * 100
@@ -18,12 +18,12 @@ def get_xlsx_url(url):
         return url.split('/edit')[0] + "/export?format=xlsx"
     return url
 
-# --- २. डेटा प्रोसेसिंग लॉजिक (Common for URL and File) ---
+# --- 2. Data Processing Logic (Common for URL and File) ---
 @st.cache_data
-def process_excel_data(xls):
+def process_excel_data(_xls):  # Added '_' to fix the hashing error
     all_data = {}
-    for sheet in xls.sheet_names:
-        df_raw = pd.read_excel(xls, sheet_name=sheet, header=None)
+    for sheet in _xls.sheet_names:
+        df_raw = pd.read_excel(_xls, sheet_name=sheet, header=None)
         
         months = df_raw.iloc[0, 2:].ffill().tolist()
         weeks = df_raw.iloc[1, 2:].tolist()
@@ -56,7 +56,7 @@ def load_from_file(file):
     xls = pd.ExcelFile(file, engine='openpyxl')
     return process_excel_data(xls)
 
-# --- ३. बेरीज करण्याचे लॉजिक ---
+# --- 3. Calculation Logic ---
 def get_sum_up_to_week(df, ward, month, week_str, all_months, all_weeks):
     target_cols = []
     if week_str not in all_weeks: return 0
@@ -78,7 +78,7 @@ def get_cumulative_sum(df, ward, end_month, end_week, all_months, all_weeks):
         if m == end_month: break
     return int(df[df['Ward'] == ward][target_cols].values.sum())
 
-# --- ४. टेबल डिस्प्ले विथ टोटल रो ---
+# --- 4. Table Display with Total Row ---
 def display_table(data_list, numeric_cols, pct_col_name=None):
     df = pd.DataFrame(data_list)
     total_row = {'Ward': 'Total'}
@@ -95,7 +95,7 @@ def display_table(data_list, numeric_cols, pct_col_name=None):
     st.table(df_final)
     return df_final
 
-# --- ५. मुख्य इंटरफेस आणि Data Source Input ---
+# --- 5. Main UI and Data Source Input ---
 st.sidebar.header("📁 Data Source")
 data_source_type = st.sidebar.radio("Choose Input Method:", ("Use Google Sheet Link", "Upload Excel File"))
 
@@ -106,15 +106,14 @@ try:
     if data_source_type == "Use Google Sheet Link":
         user_url = st.sidebar.text_input("Google Sheet URL:", value=DEFAULT_GSHEET_URL)
         if user_url:
-            with st.spinner("डेटा लोड होत आहे..."):
+            with st.spinner("Loading data from URL..."):
                 data_dict = load_from_url(user_url)
     else:
         uploaded_file = st.sidebar.file_uploader("Upload your Excel file (.xlsx)", type=['xlsx'])
         if uploaded_file:
-            with st.spinner("फाईल प्रोसेस होत आहे..."):
+            with st.spinner("Processing uploaded file..."):
                 data_dict = load_from_file(uploaded_file)
 
-    # जर डेटा यशस्वीरित्या लोड झाला असेल तरच पुढचा UI दिसेल
     if data_dict:
         st.title("📊 Disease-wise Trend Analysis")
         tabs = st.tabs(list(data_dict.keys()))
@@ -128,7 +127,7 @@ try:
                 df_26 = data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- Filters ---
+                # --- Row 1: Filters ---
                 r1c1, r1c2 = st.columns(2)
                 
                 with r1c1:
@@ -162,7 +161,7 @@ try:
                         t2_res.append({'Ward': w, '2025': v25, '2026': v26, '% Inc/Dec': format_pct(diff)})
                     df2 = display_table(t2_res, ['2025', '2026'], '% Inc/Dec')
 
-                # --- Cumulative & Summary ---
+                # --- Row 2: Cumulative & Summary ---
                 r2c1, r2c2 = st.columns(2)
                 
                 with r2c1:
@@ -204,7 +203,7 @@ try:
                     key=f"dl_{sheet_name}"
                 )
     else:
-        st.info("👈 कृपया डाव्या बाजूला (Sidebar) डेटा सोर्स सिलेक्ट करा किंवा फाईल अपलोड करा.")
+        st.info("👈 Please select a data source from the sidebar or upload a file.")
 
 except Exception as e:
     st.error(f"Error: {e}")
