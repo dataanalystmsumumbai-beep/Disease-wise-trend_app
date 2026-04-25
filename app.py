@@ -4,16 +4,17 @@ import io
 
 st.set_page_config(page_title="Health Analysis Dashboard", layout="wide")
 
-# --- १. टक्केवारी फॉरमॅट करण्यासाठी हेल्पर फंक्शन ---
+# --- १. फॉरमॅटिंग फंक्शन्स ---
 def format_pct(val):
     if val == 0: return "0 %"
     val = val * 100
-    if val == int(val):
+    # जर पूर्ण अंक असेल तर .०० नको, नसेल तर २ डेसिमल
+    if abs(val - round(val)) < 1e-9:
         return f"{int(val)} %"
     else:
         return f"{val:.2f} %"
 
-# --- २. डेटा लोडिंग ---
+# --- २. डेटा लोडिंग (Google Sheet) ---
 DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/11-ZeoBvixvY_ujLO8_9Vlze2jmGC4CooTWjvd2INX-4/edit"
 
 def get_xlsx_url(url):
@@ -28,12 +29,14 @@ def load_all_sheets(url):
     all_data = {}
     for sheet in xls.sheet_names:
         df_raw = pd.read_excel(xls, sheet_name=sheet, header=None)
+        # Header Cleanup
         months = df_raw.iloc[0, 2:].ffill().tolist()
         weeks = df_raw.iloc[1, 2:].tolist()
         cols = ['Ward', 'Total'] + [f"{m}_{w}" for m, w in zip(months, weeks)]
         data = df_raw.iloc[2:].copy()
         data.columns = cols[:len(data.columns)]
         
+        # Split 2025 & 2026
         ward_a_indices = data[data['Ward'] == 'A'].index.tolist()
         if len(ward_a_indices) >= 2:
             df_25 = data.loc[ward_a_indices[0]:ward_a_indices[1]-2].copy()
@@ -48,46 +51,48 @@ def load_all_sheets(url):
         all_data[sheet] = {'25': df_25, '26': df_26}
     return all_data
 
-# --- ३. कॅल्क्युलेशन फंक्शन्स ---
+# --- ३. बेरीज करण्याचे लॉजिक (Up to Week) ---
 def get_sum_up_to_week(df, ward, month, week_str, all_months, all_weeks):
     target_cols = []
-    week_idx = all_weeks.index(week_str)
-    for i in range(week_idx + 1):
-        col_name = f"{month}_{all_weeks[i]}"
-        if col_name in df.columns: target_cols.append(col_name)
-    return int(df[df['Ward'] == ward][target_cols].values.sum())
+    if week_str not in all_weeks: return 0
+    w_idx = all_weeks.index(week_str)
+    for i in range(w_idx + 1):
+        c_name = f"{month}_{all_weeks[i]}"
+        if c_name in df.columns: target_cols.append(c_name)
+    val = df[df['Ward'] == ward][target_cols].values.sum()
+    return int(val)
 
 def get_cumulative_sum(df, ward, end_month, end_week, all_months, all_weeks):
     target_cols = []
     m_idx = all_months.index(end_month)
     for m in all_months[:m_idx+1]:
         for w in all_weeks:
-            col_name = f"{m}_{w}"
-            if col_name in df.columns: target_cols.append(col_name)
+            c_name = f"{m}_{w}"
+            if c_name in df.columns: target_cols.append(c_name)
             if m == end_month and w == end_week: break
         if m == end_month: break
     return int(df[df['Ward'] == ward][target_cols].values.sum())
 
-# --- ४. टेबल विथ टोटल ओळ ---
-def display_with_total(data_list, numeric_cols, pct_col=None):
+# --- ४. टेबल डिस्प्ले विथ टोटल रो ---
+def display_table(data_list, numeric_cols, pct_col_name=None):
     df = pd.DataFrame(data_list)
     # Total calculation
     total_row = {'Ward': 'Total'}
     for col in numeric_cols:
-        total_row[col] = df[col].sum()
+        total_row[col] = int(df[col].sum())
     
-    # Total % calculation if exists
-    if pct_col and len(numeric_cols) >= 2:
-        v1_total = total_row[numeric_cols[0]]
-        v2_total = total_row[numeric_cols[1]]
-        diff = ((v2_total - v1_total) / v1_total) if v1_total > 0 else 0
-        total_row[pct_col] = format_pct(diff)
-
+    # Total % calculation
+    if pct_col_name and len(numeric_cols) >= 2:
+        v1 = total_row[numeric_cols[0]]
+        v2 = total_row[numeric_cols[1]]
+        diff = ((v2 - v1) / v1) if v1 > 0 else 0
+        total_row[pct_col_name] = format_pct(diff)
+    
     df_final = pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
     st.table(df_final)
     return df_final
 
-# --- ५. UI आणि टॅब्स ---
+# --- ५. मुख्य इंटरफेस ---
 try:
     data_dict = load_all_sheets(DEFAULT_GSHEET_URL)
     tabs = st.tabs(list(data_dict.keys()))
@@ -101,71 +106,79 @@ try:
             df_26 = data_dict[sheet_name]['26']
             wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-            # फिल्टर विभाग
-            c1, c2, c3, c4 = st.columns(4)
-            m1 = c1.selectbox("Month 1 (2026)", months_list, index=2, key=f"t1m1_{sheet_name}")
-            m2 = c2.selectbox("Month 2 (2026)", months_list, index=3, key=f"t1m2_{sheet_name}")
-            y25m = c3.selectbox("2025 Month", months_list, index=3, key=f"t2m25_{sheet_name}")
-            w_sel = c4.selectbox("Up to Week", weeks_list, index=0, key=f"wglobal_{sheet_name}")
-
-            st.divider()
+            # --- Row 1: Filters for Table 1 and Table 2 ---
+            r1c1, r1c2 = st.columns(2)
             
-            row1_col1, row1_col2 = st.columns(2)
-            row2_col1, row2_col2 = st.columns(2)
-
-            # Table 1: Monthly
-            with row1_col1:
-                st.subheader("1. Monthly (2026)")
-                t1_list = []
+            with r1c1:
+                st.subheader("1. Monthly Comparison (2026)")
+                f1, f2, f3 = st.columns(3)
+                m1_t1 = f1.selectbox("Month 1", months_list, index=2, key=f"t1m1_{sheet_name}")
+                m2_t1 = f2.selectbox("Month 2", months_list, index=3, key=f"t1m2_{sheet_name}")
+                w_t1 = f3.selectbox("Up to Week", weeks_list, key=f"t1w_{sheet_name}")
+                
+                t1_res = []
                 for w in wards:
-                    v1 = get_sum_up_to_week(df_26, w, m1, w_sel, months_list, weeks_list)
-                    v2 = get_sum_up_to_week(df_26, w, m2, w_sel, months_list, weeks_list)
+                    v1 = get_sum_up_to_week(df_26, w, m1_t1, w_t1, months_list, weeks_list)
+                    v2 = get_sum_up_to_week(df_26, w, m2_t1, w_t1, months_list, weeks_list)
                     diff = ((v2 - v1) / v1) if v1 > 0 else 0
-                    t1_list.append({'Ward': w, f"{m1}": v1, f"{m2}": v2, '% Change': format_pct(diff)})
-                df1 = display_with_total(t1_list, [f"{m1}", f"{m2}"], '% Change')
+                    t1_res.append({'Ward': w, f"{m1_t1}": v1, f"{m2_t1}": v2, '% Inc/Dec': format_pct(diff)})
+                df1 = display_table(t1_res, [m1_t1, m2_t1], '% Inc/Dec')
 
-            # Table 2: Yearly
-            with row1_col2:
+            with r1c2:
                 st.subheader("2. Yearly Comparison")
-                t2_list = []
+                f1, f2, f3, f4 = st.columns(4)
+                m_25 = f1.selectbox("2025 Month", months_list, index=3, key=f"t2m25_{sheet_name}")
+                w_25 = f2.selectbox("2025 Week", weeks_list, key=f"t2w25_{sheet_name}")
+                m_26 = f3.selectbox("2026 Month", months_list, index=3, key=f"t2m26_{sheet_name}")
+                w_26 = f4.selectbox("2026 Week", weeks_list, key=f"t2w26_{sheet_name}")
+                
+                t2_res = []
                 for w in wards:
-                    v25 = get_sum_up_to_week(df_25, w, y25m, w_sel, months_list, weeks_list)
-                    v26 = get_sum_up_to_week(df_26, w, m2, w_sel, months_list, weeks_list) # Using m2 for 2026
+                    v25 = get_sum_up_to_week(df_25, w, m_25, w_25, months_list, weeks_list)
+                    v26 = get_sum_up_to_week(df_26, w, m_26, w_26, months_list, weeks_list)
                     diff = ((v26 - v25) / v25) if v25 > 0 else 0
-                    t2_list.append({'Ward': w, '2025': v25, '2026': v26, '% Change': format_pct(diff)})
-                df2 = display_with_total(t2_list, ['2025', '2026'], '% Change')
+                    t2_res.append({'Ward': w, '2025': v25, '2026': v26, '% Inc/Dec': format_pct(diff)})
+                df2 = display_table(t2_res, ['2025', '2026'], '% Inc/Dec')
 
-            # Table 3: Cumulative
-            with row2_col1:
-                st.subheader("3. Cumulative (Jan to Date)")
-                t3_list = []
+            # --- Row 2: Filters for Table 3 and Summary ---
+            r2c1, r2c2 = st.columns(2)
+            
+            with r2c1:
+                st.subheader("3. Cumulative Comparison")
+                f1, f2 = st.columns(2)
+                cum_m = f1.selectbox("End Month", months_list, index=3, key=f"t3m_{sheet_name}")
+                cum_w = f2.selectbox("End Week", weeks_list, key=f"t3w_{sheet_name}")
+                
+                t3_res = []
                 for w in wards:
-                    v25c = get_cumulative_sum(df_25, w, m2, w_sel, months_list, weeks_list)
-                    v26c = get_cumulative_sum(df_26, w, m2, w_sel, months_list, weeks_list)
+                    v25c = get_cumulative_sum(df_25, w, cum_m, cum_w, months_list, weeks_list)
+                    v26c = get_cumulative_sum(df_26, w, cum_m, cum_w, months_list, weeks_list)
                     diff = ((v26c - v25c) / v25c) if v25c > 0 else 0
-                    t3_list.append({'Ward': w, '2025 Cum': v25c, '2026 Cum': v26c, '% Change': format_pct(diff)})
-                df3 = display_with_total(t3_list, ['2025 Cum', '2026 Cum'], '% Change')
+                    t3_res.append({'Ward': w, '2025 Cum': v25c, '2026 Cum': v26c, '% Inc/Dec': format_pct(diff)})
+                df3 = display_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
 
-            # Table 4: Summary
-            with row2_col2:
-                st.subheader("4. Summary Trends")
-                summary_list = []
-                for idx, w in enumerate(wards):
-                    summary_list.append({
+            with r2c2:
+                st.subheader("4. Summary Trends (%)")
+                st.write("") # spacing
+                summary_res = []
+                for i_w, w in enumerate(wards):
+                    summary_res.append({
                         'Ward': w,
-                        'Monthly %': t1_list[idx]['% Change'],
-                        'Yearly %': t2_list[idx]['% Change'],
-                        'Cum %': t3_list[idx]['% Change']
+                        'Monthly %': t1_res[i_w]['% Inc/Dec'],
+                        'Yearly %': t2_res[i_w]['% Inc/Dec'],
+                        'Cum %': t3_res[i_w]['% Inc/Dec']
                     })
-                df4 = display_with_total(summary_list, [], None)
+                df4 = display_table(summary_res, [])
 
             # --- Download Button ---
-            full_report = pd.concat([df1, df2, df3, df4], axis=1)
-            csv = full_report.to_csv(index=False).encode('utf-8')
+            csv_buffer = io.StringIO()
+            # सर्वांचे एकत्र CSV करण्यासाठी
+            final_report = pd.concat([df1, df2, df3, df4], axis=1)
+            final_report.to_csv(csv_buffer, index=False)
             st.download_button(
                 label=f"Download {sheet_name} Report",
-                data=csv,
-                file_name=f"{sheet_name}_report.csv",
+                data=csv_buffer.getvalue(),
+                file_name=f"{sheet_name}_Analysis.csv",
                 mime="text/csv",
                 key=f"dl_{sheet_name}"
             )
