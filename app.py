@@ -12,7 +12,6 @@ def format_pct(val):
     if pd.isna(val) or np.isinf(val): return "0 %"
     if val == 0: return "0 %"
     val = val * 100
-    # Round to 2 decimal places or keep as int if whole number
     return f"{int(val)} %" if abs(val - round(val)) < 1e-9 else f"{val:.2f} %"
 
 def get_xlsx_url(url):
@@ -34,7 +33,7 @@ def process_excel_data(_xls):
         data = df_raw.iloc[2:].copy()
         data.columns = cols[:len(data.columns)]
         
-        # Split 2025 & 2026 data
+        # Split 2025 & 2026 data based on 'Ward A' positioning
         ward_a_indices = data[data['Ward'] == 'A'].index.tolist()
         if len(ward_a_indices) >= 2:
             df_25 = data.loc[ward_a_indices[0]:ward_a_indices[1]-2].copy()
@@ -95,7 +94,7 @@ def display_table(data_list, numeric_cols, pct_col_name=None):
 
 # --- 4. Main UI ---
 st.sidebar.header("📁 Data Source")
-data_source_type = st.sidebar.radio("Choose Input Method:", ("Use Google Sheet Link", "Upload Excel File"))
+data_source_type = st.sidebar.radio("Input Method:", ("Use Google Sheet Link", "Upload Excel File"))
 
 data_dict = None
 DEFAULT_URL = "https://docs.google.com/spreadsheets/d/11-ZeoBvixvY_ujLO8_9Vlze2jmGC4CooTWjvd2INX-4/edit"
@@ -121,15 +120,18 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # Table 1 & 2
+                # Row 1: Tables 1 & 2
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("1. Monthly Comparison")
                     f1, f2, f3 = st.columns(3)
-                    m1, m2, wt1 = f1.selectbox("Month 1", months_list, 2, key=f"m1_{i}"), f2.selectbox("Month 2", months_list, 3, key=f"m2_{i}"), f3.selectbox("Up to", weeks_list, key=f"wt1_{i}")
+                    m1 = f1.selectbox("Month 1", months_list, index=2, key=f"m1_{i}")
+                    m2 = f2.selectbox("Month 2", months_list, index=3, key=f"m2_{i}")
+                    wt1 = f3.selectbox("Up to", weeks_list, key=f"wt1_{i}")
                     t1_res = []
                     for w in wards:
-                        v1, v2 = get_sum_up_to_week(df_26, w, m1, wt1, months_list, weeks_list), get_sum_up_to_week(df_26, w, m2, wt1, months_list, weeks_list)
+                        v1 = get_sum_up_to_week(df_26, w, m1, wt1, months_list, weeks_list)
+                        v2 = get_sum_up_to_week(df_26, w, m2, wt1, months_list, weeks_list)
                         t1_res.append({'Ward':w, m1:v1, m2:v2, '% Inc/Dec':format_pct(((v2-v1)/v1) if v1 > 0 else 0)})
                     df1 = display_table(t1_res, [m1, m2], '% Inc/Dec')
                     t1_title = f"1. Monthly Comparison: {m1} vs {m2} (Up to {wt1})"
@@ -137,49 +139,53 @@ try:
                 with col2:
                     st.subheader("2. Yearly Comparison")
                     f1, f2, f3, f4 = st.columns(4)
-                    ym25, yw25, ym26, yw26 = f1.selectbox("25 M", months_list, 3, key=f"ym25_{i}"), f2.selectbox("25 W", weeks_list, key=f"yw25_{i}"), f3.selectbox("26 M", months_list, 3, key=f"ym26_{i}"), f4.selectbox("26 W", weeks_list, key=f"yw26_{i}")
+                    ym25 = f1.selectbox("2025 Month", months_list, index=3, key=f"ym25_{i}")
+                    yw25 = f2.selectbox("2025 Week", weeks_list, key=f"yw25_{i}")
+                    ym26 = f3.selectbox("2026 Month", months_list, index=3, key=f"ym26_{i}")
+                    yw26 = f4.selectbox("2026 Week", weeks_list, key=f"yw26_{i}")
                     t2_res = []
                     for w in wards:
-                        v1, v2 = get_sum_up_to_week(df_25, w, ym25, yw25, months_list, weeks_list), get_sum_up_to_week(df_26, w, ym26, yw26, months_list, weeks_list)
+                        v1 = get_sum_up_to_week(df_25, w, ym25, yw25, months_list, weeks_list)
+                        v2 = get_sum_up_to_week(df_26, w, ym26, yw26, months_list, weeks_list)
                         t2_res.append({'Ward':w, '2025':v1, '2026':v2, '% Inc/Dec':format_pct(((v2-v1)/v1) if v1 > 0 else 0)})
                     df2 = display_table(t2_res, ['2025', '2026'], '% Inc/Dec')
-                    t2_title = f"2. Yearly Comparison: 2025 ({ym25}-{yw25}) vs 2026 ({ym26}-{yw26})"
+                    t2_title = f"2. Yearly Comparison: 2025 vs 2026"
 
-                # Table 3 & 4
+                # Row 2: Tables 3 & 4
                 col3, col4 = st.columns(2)
                 with col3:
                     st.subheader("3. Cumulative Comparison")
                     f1, f2 = st.columns(2)
-                    cm, cw = f1.selectbox("End Month", months_list, 3, key=f"cm_{i}"), f2.selectbox("End Week", weeks_list, key=f"cw_{i}")
+                    cm = f1.selectbox("End Month", months_list, index=3, key=f"cm_{i}")
+                    cw = f2.selectbox("End Week", weeks_list, key=f"cw_{i}")
                     t3_res = []
                     for w in wards:
-                        v1, v2 = get_cumulative_sum(df_25, w, cm, cw, months_list, weeks_list), get_cumulative_sum(df_26, w, cm, cw, months_list, weeks_list)
+                        v1 = get_cumulative_sum(df_25, w, cm, cw, months_list, weeks_list)
+                        v2 = get_cumulative_sum(df_26, w, cm, cw, months_list, weeks_list)
                         t3_res.append({'Ward':w, '2025 Cum':v1, '2026 Cum':v2, '% Inc/Dec':format_pct(((v2-v1)/v1) if v1 > 0 else 0)})
                     df3 = display_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
-                    t3_title = f"3. Cumulative: Jan to {cm} ({cw})"
+                    t3_title = f"3. Cumulative Comparison: Jan to {cm} ({cw})"
 
                 with col4:
                     st.subheader("4. Summary Trends (%)")
-                    # Ward-only data for chart
+                    # Prepare Summary Data
                     t4_res = [{'Ward': w, 'Monthly %': t1_res[idx]['% Inc/Dec'], 'Yearly %': t2_res[idx]['% Inc/Dec'], 'Cum %': t3_res[idx]['% Inc/Dec']} for idx, w in enumerate(wards)]
-                    # Total row for display
                     t4_total = {'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'], 'Yearly %': df2.iloc[-1]['% Inc/Dec'], 'Cum %': df3.iloc[-1]['% Inc/Dec']}
                     df4_final = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([t4_total])], ignore_index=True)
                     st.table(df4_final)
 
-                    # --- Line Chart (Excluding Total) ---
+                    # --- Line Chart (Clean version without data labels) ---
                     st.write("#### 📈 Trend Visualization (Wards Only)")
                     df_ch = pd.DataFrame(t4_res)
                     for col in ['Monthly %', 'Yearly %', 'Cum %']:
                         df_ch[col] = df_ch[col].str.replace(' %', '').astype(float)
                     
                     df_melted = df_ch.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
-                    fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True, text='Percentage')
-                    fig.update_traces(textposition="top center", texttemplate='%{text}%')
+                    fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
                     fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=450)
                     st.plotly_chart(fig, use_container_width=True)
 
-                # --- Excel Side-by-Side Download ---
+                # --- Excel Side-by-Side Download Logic ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
                     wb, ws = writer.book, writer.book.add_worksheet("Analysis_Report")
@@ -188,14 +194,14 @@ try:
                     t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78'})
                     
                     def write_side(df, start_col, title):
-                        df_clean = df.replace([np.inf, -np.inf], 0).fillna(0)
+                        df_c = df.replace([np.inf, -np.inf], 0).fillna(0)
                         ws.write(0, start_col, title, t_fmt)
-                        for c, col in enumerate(df_clean.columns): 
+                        for c, col in enumerate(df_c.columns): 
                             ws.write(2, start_col+c, col, h_fmt)
-                        for r, row in enumerate(df_clean.values):
+                        for r, row in enumerate(df_c.values):
                             for c, val in enumerate(row): 
                                 ws.write(r+3, start_col+c, val, c_fmt)
-                        return start_col + len(df_clean.columns) + 1
+                        return start_col + len(df_c.columns) + 1
 
                     curr = write_side(df1, 0, t1_title)
                     curr = write_side(df2, curr, t2_title)
@@ -205,7 +211,7 @@ try:
                 st.download_button(label=f"📥 Download {sheet_name} Report", data=output.getvalue(),
                                    file_name=f"{sheet_name}_Analysis.xlsx", key=f"dl_{i}")
     else:
-        st.info("👈 Please select a data source from the sidebar.")
+        st.info("👈 Please select a data source from the sidebar to begin.")
 
 except Exception as e:
-    st.error(f"Something went wrong: {e}")
+    st.error(f"An error occurred: {e}")
