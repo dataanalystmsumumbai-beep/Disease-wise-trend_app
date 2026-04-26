@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import numpy as np
+import plotly.express as px
 
 # Set page config
 st.set_page_config(page_title="Health Analysis Dashboard", layout="wide", initial_sidebar_state="expanded")
@@ -167,6 +168,16 @@ try:
                     df4_final = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([t4_total])], ignore_index=True)
                     st.table(df4_final)
                     t4_title = "4. Summary Trends Overview (%)"
+
+                    # --- Line Chart ---
+                    st.write("#### 📈 Trend Visualization (Wards Only)")
+                    df_chart = pd.DataFrame(t4_res)
+                    for col in ['Monthly %', 'Yearly %', 'Cum %']:
+                        df_chart[col] = df_chart[col].str.replace(' %', '').astype(float)
+                    df_melted = df_chart.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
+                    fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
+                    fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=450)
+                    st.plotly_chart(fig, use_container_width=True)
 
                 # --- Excel Side-by-Side Download ---
                 output = io.BytesIO()
