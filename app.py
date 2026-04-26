@@ -119,7 +119,7 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # UI Layout
+                # --- Tables Section (Top) ---
                 c1, c2 = st.columns(2)
                 with c1:
                     st.subheader("1. Monthly Comparison")
@@ -169,39 +169,56 @@ try:
                     st.table(df4_final)
                     t4_title = "4. Summary Trends Overview (%)"
 
-                    # --- Line Chart ---
-                    st.write("#### 📈 Trend Visualization (Wards Only)")
-                    df_chart = pd.DataFrame(t4_res)
-                    for col in ['Monthly %', 'Yearly %', 'Cum %']:
-                        df_chart[col] = df_chart[col].str.replace(' %', '').astype(float)
-                    df_melted = df_chart.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
-                    fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
-                    fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=450)
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # --- Excel Side-by-Side Download ---
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
-                    wb, ws = writer.book, writer.book.add_worksheet("Analysis")
-                    h_fmt = wb.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1, 'align':'center'})
-                    c_fmt = wb.add_format({'border':1, 'align':'center'})
-                    t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78', 'text_wrap': True})
-                    
-                    def write_side(df, start_col, title):
-                        df_c = df.replace([np.inf, -np.inf], 0).fillna(0)
-                        ws.merge_range(0, start_col, 0, start_col + len(df_c.columns) - 1, title, t_fmt)
-                        for c, col in enumerate(df_c.columns): ws.write(2, start_col+c, col, h_fmt)
-                        for r, row in enumerate(df_c.values):
-                            for c, val in enumerate(row): ws.write(r+3, start_col+c, val, c_fmt)
-                        return start_col + len(df_c.columns) + 1
-
-                    curr = write_side(df1, 0, t1_title)
-                    curr = write_side(df2, curr, t2_title)
-                    curr = write_side(df3, curr, t3_title)
-                    write_side(df4_final, curr, t4_title)
+                # --- Chart Section (Full Width, Below Tables) ---
+                st.markdown("---") # लाइन सेपरेटर
+                st.subheader("📈 Trend Visualization (Wards Only)")
                 
-                st.download_button(label=f"📥 Download {sheet_name} Report", data=output.getvalue(),
-                                   file_name=f"{sheet_name}_Report.xlsx", key=f"dl_{sheet_name}")
+                df_chart = pd.DataFrame(t4_res)
+                for col in ['Monthly %', 'Yearly %', 'Cum %']:
+                    df_chart[col] = df_chart[col].str.replace(' %', '').astype(float)
+                df_melted = df_chart.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
+                
+                # चार्टची उंची वाढवली आहे (height=600)
+                fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
+                fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=600)
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.markdown("<br>", unsafe_allow_html=True) # थोडी जागा सोडण्यासाठी
+
+                # --- Download Buttons Section ---
+                d_col1, d_col2 = st.columns(2)
+                
+                with d_col1:
+                    # Excel Report Download Logic
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
+                        wb, ws = writer.book, writer.book.add_worksheet("Analysis")
+                        h_fmt = wb.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1, 'align':'center'})
+                        c_fmt = wb.add_format({'border':1, 'align':'center'})
+                        t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78', 'text_wrap': True})
+                        
+                        def write_side(df, start_col, title):
+                            df_c = df.replace([np.inf, -np.inf], 0).fillna(0)
+                            ws.merge_range(0, start_col, 0, start_col + len(df_c.columns) - 1, title, t_fmt)
+                            for c, col in enumerate(df_c.columns): ws.write(2, start_col+c, col, h_fmt)
+                            for r, row in enumerate(df_c.values):
+                                for c, val in enumerate(row): ws.write(r+3, start_col+c, val, c_fmt)
+                            return start_col + len(df_c.columns) + 1
+
+                        curr = write_side(df1, 0, t1_title)
+                        curr = write_side(df2, curr, t2_title)
+                        curr = write_side(df3, curr, t3_title)
+                        write_side(df4_final, curr, t4_title)
+                    
+                    st.download_button(label=f"📥 Download {sheet_name} Report (Excel)", data=output.getvalue(),
+                                       file_name=f"{sheet_name}_Report.xlsx", key=f"dl_excel_{sheet_name}")
+
+                with d_col2:
+                    # Chart Download Logic (HTML format)
+                    chart_html = fig.to_html(include_plotlyjs="cdn").encode('utf-8')
+                    st.download_button(label=f"📊 Download {sheet_name} Chart", data=chart_html,
+                                       file_name=f"{sheet_name}_Chart.html", mime="text/html", key=f"dl_chart_{sheet_name}")
+
     else:
         st.info("👈 Please select a data source.")
 
