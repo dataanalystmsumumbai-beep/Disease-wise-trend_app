@@ -144,7 +144,7 @@ try:
                 df4 = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([{'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'], 'Yearly %': df2.iloc[-1]['% Inc/Dec'], 'Cum %': df3.iloc[-1]['% Inc/Dec']}])], ignore_index=True)
                 st.table(df4)
 
-                # Graph
+                # --- DASHBOARD VISUALIZATION ---
                 st.markdown("---")
                 st.subheader("📈 Summary Trends Visualization")
                 df_graph = pd.DataFrame(t4_res)
@@ -154,7 +154,7 @@ try:
                 fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Ranking Calculations
+                # --- DASHBOARD RANKINGS ---
                 def get_rank_dfs(res_list, col_name):
                     top = pd.DataFrame([{'Ward': x['Ward'], col_name: x['% Inc/Dec']} for x in sorted(res_list, key=lambda x: x['_raw_diff'], reverse=True)[:5]])
                     bot = pd.DataFrame([{'Ward': x['Ward'], col_name: x['% Inc/Dec']} for x in sorted(res_list, key=lambda x: x['_raw_diff'], reverse=False)[:5]])
@@ -164,7 +164,15 @@ try:
                 dt_y, db_y = get_rank_dfs(t2_res, "Yearly %")
                 dt_c, db_c = get_rank_dfs(t3_res, "Cum %")
 
-                # Excel Export logic
+                st.subheader("🏆 Top 5 Increase Rankings")
+                r_top1, r_top2, r_top3 = st.columns(3)
+                r_top1.table(dt_m); r_top2.table(dt_y); r_top3.table(dt_c)
+
+                st.subheader("📉 Bottom 5 Decrease Rankings")
+                r_bot1, r_bot2, r_bot3 = st.columns(3)
+                r_bot1.table(db_m); r_bot2.table(db_y); r_bot3.table(db_c)
+
+                # --- EXCEL EXPORT LOGIC ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     workbook = writer.book
@@ -190,7 +198,7 @@ try:
                             for c_idx, val in enumerate(row_val):
                                 ws_t.write(r_idx + 2, offsets[idx] + c_idx, val, cell_fmt)
 
-                    # Top 5 Rankings
+                    # Export Rankings to Excel
                     rank_row = len(df1) + 5
                     ws_t.write(rank_row, 0, "🏆 Top 5 Increase", title_fmt)
                     rank_tops = [dt_m, dt_y, dt_c]
@@ -199,7 +207,6 @@ try:
                         for r_idx, row_val in enumerate(rdf.values):
                             for c_idx, val in enumerate(row_val): ws_t.write(rank_row+2+r_idx, (idx*3)+c_idx, val, cell_fmt)
 
-                    # Bottom 5 Rankings
                     bot_row = rank_row + 8
                     ws_t.write(bot_row, 0, "📉 Bottom 5 Decrease", title_fmt)
                     rank_bots = [db_m, db_y, db_c]
@@ -208,7 +215,7 @@ try:
                         for r_idx, row_val in enumerate(rdf.values):
                             for c_idx, val in enumerate(row_val): ws_t.write(bot_row+2+r_idx, (idx*3)+c_idx, val, cell_fmt)
 
-                    # Chart Sheet
+                    # Export Chart Sheet
                     ws_c = workbook.add_worksheet('Trend_Chart')
                     for c, h in enumerate(["Ward", "Monthly %", "Yearly %", "Cum %"]): ws_c.write(0, c, h, header_fmt)
                     for r, row in enumerate(t4_res):
