@@ -102,7 +102,7 @@ try:
         data_dict = load_from_file(uploaded_file) if uploaded_file else None
 
     if data_dict:
-        st.title("📊 Health Infrastructure & Trend Analysis")
+        st.title("📊 Ward-wise trend analysis for the years 2025 and 2026")
         tabs = st.tabs(list(data_dict.keys()))
         months_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"]
