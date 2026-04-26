@@ -79,7 +79,6 @@ def get_cumulative_sum(df, ward, end_month, end_week, all_months, all_weeks):
     return int(df[df['Ward'] == ward][target_cols].values.sum())
 
 def display_table(data_list, numeric_cols, pct_col_name=None):
-    # Remove hidden '_raw_diff' column before displaying
     clean_list = [{k:v for k,v in d.items() if k != '_raw_diff'} for d in data_list]
     df = pd.DataFrame(clean_list)
     total_row = {'Ward': 'Total'}
@@ -171,6 +170,40 @@ try:
                     st.table(df4_final)
                     t4_title = "4. Summary Trends Overview (%)"
 
+                # --- Sorting Logic for Top & Bottom 5 ---
+                top5_m = sorted(t1_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
+                top5_y = sorted(t2_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
+                top5_c = sorted(t3_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
+
+                bot5_m = sorted(t1_res, key=lambda x: x['_raw_diff'], reverse=False)[:5]
+                bot5_y = sorted(t2_res, key=lambda x: x['_raw_diff'], reverse=False)[:5]
+                bot5_c = sorted(t3_res, key=lambda x: x['_raw_diff'], reverse=False)[:5]
+
+                # DataFrames for UI and Excel
+                df_top_m = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_m])
+                df_top_y = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_y])
+                df_top_c = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_c])
+
+                df_bot_m = pd.DataFrame([{'Ward': x['Ward'], 'Decrease': format_pct(x['_raw_diff'])} for x in bot5_m])
+                df_bot_y = pd.DataFrame([{'Ward': x['Ward'], 'Decrease': format_pct(x['_raw_diff'])} for x in bot5_y])
+                df_bot_c = pd.DataFrame([{'Ward': x['Ward'], 'Decrease': format_pct(x['_raw_diff'])} for x in bot5_c])
+
+                # --- Top 5 UI ---
+                st.markdown("---")
+                st.subheader("🏆 Top 5 Wards (Highest % Increase)")
+                top_c1, top_c2, top_c3 = st.columns(3)
+                with top_c1: st.write("**Top 5: Monthly %**"); st.table(df_top_m)
+                with top_c2: st.write("**Top 5: Yearly %**"); st.table(df_top_y)
+                with top_c3: st.write("**Top 5: Cumulative %**"); st.table(df_top_c)
+
+                # --- Bottom 5 UI ---
+                st.markdown("---")
+                st.subheader("📉 Bottom 5 Wards (Lowest % Increase / Highest Decrease)")
+                bot_c1, bot_c2, bot_c3 = st.columns(3)
+                with bot_c1: st.write("**Bottom 5: Monthly %**"); st.table(df_bot_m)
+                with bot_c2: st.write("**Bottom 5: Yearly %**"); st.table(df_bot_y)
+                with bot_c3: st.write("**Bottom 5: Cumulative %**"); st.table(df_bot_c)
+
                 # --- Chart Section ---
                 st.markdown("---")
                 st.subheader("📈 Trend Visualization (Wards Only)")
@@ -183,81 +216,64 @@ try:
                 fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
                 fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=600)
                 st.plotly_chart(fig, use_container_width=True)
-
-                # --- Top 5 Wards Section ---
-                st.markdown("---")
-                st.subheader("🏆 Top 5 Wards (Highest % Increase)")
-                top_c1, top_c2, top_c3 = st.columns(3)
-                
-                # Sort the dictionaries by the hidden _raw_diff key in descending order
-                top5_m = sorted(t1_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
-                top5_y = sorted(t2_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
-                top5_c = sorted(t3_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
-
-                with top_c1:
-                    st.write("**Top 5: Monthly %**")
-                    df_top_m = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_m])
-                    st.table(df_top_m)
-
-                with top_c2:
-                    st.write("**Top 5: Yearly %**")
-                    df_top_y = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_y])
-                    st.table(df_top_y)
-
-                with top_c3:
-                    st.write("**Top 5: Cumulative %**")
-                    df_top_c = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_c])
-                    st.table(df_top_c)
-
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # --- Download Buttons Section ---
-                d_col1, d_col2 = st.columns(2)
-                
-                with d_col1:
-                    # Excel Report Download Logic with Chart Image embedded
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
-                        wb, ws = writer.book, writer.book.add_worksheet("Analysis")
-                        h_fmt = wb.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1, 'align':'center'})
-                        c_fmt = wb.add_format({'border':1, 'align':'center'})
-                        t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78', 'text_wrap': True})
+                # --- Single Download Button (All-in-one Excel) ---
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
+                    wb, ws = writer.book, writer.book.add_worksheet("Dashboard_Report")
+                    h_fmt = wb.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1, 'align':'center'})
+                    c_fmt = wb.add_format({'border':1, 'align':'center'})
+                    t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78', 'text_wrap': True})
+                    title_fmt = wb.add_format({'bold':True, 'font_size':14, 'bg_color':'#4472C4', 'font_color':'white', 'align':'center'})
+
+                    def write_block(df, start_row, start_col, title):
+                        if '_raw_diff' in df.columns: df_c = df.drop(columns=['_raw_diff'])
+                        else: df_c = df.copy()
+                        df_c = df_c.replace([np.inf, -np.inf], 0).fillna(0)
                         
-                        def write_side(df, start_col, title):
-                            # Remove _raw_diff column if it exists in df before writing to Excel
-                            if '_raw_diff' in df.columns:
-                                df_c = df.drop(columns=['_raw_diff'])
-                            else:
-                                df_c = df.copy()
-                            
-                            df_c = df_c.replace([np.inf, -np.inf], 0).fillna(0)
-                            ws.merge_range(0, start_col, 0, start_col + len(df_c.columns) - 1, title, t_fmt)
-                            for c, col in enumerate(df_c.columns): ws.write(2, start_col+c, col, h_fmt)
-                            for r, row in enumerate(df_c.values):
-                                for c, val in enumerate(row): ws.write(r+3, start_col+c, val, c_fmt)
-                            return start_col + len(df_c.columns) + 1
+                        ws.merge_range(start_row, start_col, start_row, start_col + len(df_c.columns) - 1, title, t_fmt)
+                        for c, col in enumerate(df_c.columns): ws.write(start_row+2, start_col+c, col, h_fmt)
+                        for r, row in enumerate(df_c.values):
+                            for c, val in enumerate(row): ws.write(start_row+3+r, start_col+c, val, c_fmt)
+                        return start_col + len(df_c.columns) + 1
 
-                        curr = write_side(df1, 0, t1_title)
-                        curr = write_side(df2, curr, t2_title)
-                        curr = write_side(df3, curr, t3_title)
-                        write_side(df4_final, curr, t4_title)
+                    # Write Main Tables (Row 0)
+                    c1 = write_block(df1, 0, 0, t1_title)
+                    c2 = write_block(df2, 0, c1, t2_title)
+                    c3 = write_block(df3, 0, c2, t3_title)
+                    write_block(df4_final, 0, c3, t4_title)
 
-                        # Insert Plotly Chart into Excel
-                        try:
-                            img_bytes = io.BytesIO()
-                            fig.write_image(img_bytes, format='png', engine='kaleido')
-                            max_row = len(df1) + 6 # Place below the longest table
-                            ws.insert_image(max_row, 0, "chart.png", {'image_data': img_bytes})
-                        except Exception as e:
-                            pass # kaleido is missing, image simply won't be embedded
-                    
-                    st.download_button(label=f"📥 Download {sheet_name} Report (Excel)", data=output.getvalue(),
-                                       file_name=f"{sheet_name}_Report.xlsx", key=f"dl_excel_{sheet_name}")
+                    # Dynamic Row Offset for Top/Bottom 5
+                    max_table_len = max(len(df1), len(df2), len(df3), len(df4_final))
+                    top5_row = max_table_len + 5
 
-                with d_col2:
-                    chart_html = fig.to_html(include_plotlyjs="cdn").encode('utf-8')
-                    st.download_button(label=f"📊 Download {sheet_name} Chart Only", data=chart_html,
-                                       file_name=f"{sheet_name}_Chart.html", mime="text/html", key=f"dl_chart_{sheet_name}")
+                    # Write Top 5 Tables
+                    ws.merge_range(top5_row, 0, top5_row, 5, "🏆 Top 5 Wards (Highest % Increase)", title_fmt)
+                    tc1 = write_block(df_top_m, top5_row + 2, 0, "Top 5: Monthly %")
+                    tc2 = write_block(df_top_y, top5_row + 2, tc1, "Top 5: Yearly %")
+                    write_block(df_top_c, top5_row + 2, tc2, "Top 5: Cumulative %")
+
+                    bot5_row = top5_row + 10
+
+                    # Write Bottom 5 Tables
+                    ws.merge_range(bot5_row, 0, bot5_row, 5, "📉 Bottom 5 Wards (Lowest % / Highest Decrease)", title_fmt)
+                    bc1 = write_block(df_bot_m, bot5_row + 2, 0, "Bottom 5: Monthly %")
+                    bc2 = write_block(df_bot_y, bot5_row + 2, bc1, "Bottom 5: Yearly %")
+                    write_block(df_bot_c, bot5_row + 2, bc2, "Bottom 5: Cumulative %")
+
+                    # Insert Chart Image below all tables
+                    chart_row = bot5_row + 10
+                    try:
+                        img_bytes = io.BytesIO()
+                        fig.write_image(img_bytes, format='png', engine='kaleido')
+                        ws.insert_image(chart_row, 0, "chart.png", {'image_data': img_bytes})
+                    except Exception:
+                        pass # if kaleido is not installed
+                
+                # Single Unified Download Button
+                st.download_button(label=f"📥 Download Complete Report (Excel & Chart)", data=output.getvalue(),
+                                   file_name=f"{sheet_name}_Complete_Report.xlsx", key=f"dl_all_{sheet_name}")
 
     else:
         st.info("👈 Please select a data source.")
