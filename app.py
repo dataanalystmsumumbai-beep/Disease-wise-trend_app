@@ -4,10 +4,10 @@ import io
 import numpy as np
 import plotly.express as px
 
-# पेज कॉन्फिगरेशन
+# Page Configuration
 st.set_page_config(page_title="Health Analysis Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# --- १. फॉरमॅटिंग फंक्शन्स ---
+# --- 1. Helper Functions ---
 def format_pct(val):
     if pd.isna(val) or np.isinf(val): return "0 %"
     if val == 0: return "0 %"
@@ -22,7 +22,7 @@ def get_xlsx_url(url):
         return url.split('/edit')[0] + "/export?format=xlsx"
     return url
 
-# --- २. डेटा प्रोसेसिंग लॉजिक ---
+# --- 2. Data Processing ---
 @st.cache_data
 def process_excel_data(_xls):
     all_data = {}
@@ -91,9 +91,9 @@ def display_table(data_list, numeric_cols, pct_col_name=None):
     st.table(df_final)
     return df_final
 
-# --- ३. UI आणि लॉजिक ---
-st.sidebar.header("📁 डेटा सोर्स")
-data_source_type = st.sidebar.radio("पद्धत निवडा:", ("Use Google Sheet Link", "Upload Excel File"))
+# --- 3. UI Logic ---
+st.sidebar.header("📁 Data Source")
+data_source_type = st.sidebar.radio("Input Method:", ("Use Google Sheet Link", "Upload Excel File"))
 DEFAULT_URL = "https://docs.google.com/spreadsheets/d/11-ZeoBvixvY_ujLO8_9Vlze2jmGC4CooTWjvd2INX-4/edit"
 
 try:
@@ -101,11 +101,11 @@ try:
         user_url = st.sidebar.text_input("Google Sheet URL:", value=DEFAULT_URL)
         data_dict = load_from_url(user_url) if user_url else None
     else:
-        uploaded_file = st.sidebar.file_uploader("Excel फाईल अपलोड करा", type=['xlsx'])
+        uploaded_file = st.sidebar.file_uploader("Upload Excel File", type=['xlsx'])
         data_dict = load_from_file(uploaded_file) if uploaded_file else None
 
     if data_dict:
-        st.title("📊 हेल्थ इन्फ्रास्ट्रक्चर आणि ट्रेंड अॅनॅलिसिस")
+        st.title("📊 Health Infrastructure & Trend Analysis")
         tabs = st.tabs(list(data_dict.keys()))
         months_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"]
@@ -115,11 +115,11 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # टेबल्स कॅल्क्युलेशन
-                # १. Monthly
-                st.subheader("१. Monthly Comparison")
+                # 1. Monthly Table
+                st.subheader("1. Monthly Comparison")
                 c1, c2, c3 = st.columns(3)
-                m1, m2 = c1.selectbox("Month 1", months_list, index=2, key=f"m1_{i}"), c2.selectbox("Month 2", months_list, index=3, key=f"m2_{i}")
+                m1 = c1.selectbox("Month 1", months_list, index=2, key=f"m1_{i}")
+                m2 = c2.selectbox("Month 2", months_list, index=3, key=f"m2_{i}")
                 wt1 = c3.selectbox("Up to Week", weeks_list, key=f"wt1_{i}")
                 t1_res = []
                 for w in wards:
@@ -127,19 +127,19 @@ try:
                     t1_res.append({'Ward':w, m1:v1, m2:v2, '% Inc/Dec':format_pct(((v2-v1)/v1) if v1 > 0 else 0), '_raw_diff': ((v2-v1)/v1) if v1 > 0 else 0})
                 df1 = display_table(t1_res, [m1, m2], '% Inc/Dec')
 
-                # २. Yearly
-                st.subheader("२. Yearly Comparison")
+                # 2. Yearly Table
+                st.subheader("2. Yearly Comparison")
                 y1, y2, y3, y4 = st.columns(4)
-                m25, w25 = y1.selectbox("25 Month", months_list, index=3, key=f"m25_{i}"), y2.selectbox("25 Week", weeks_list, key=f"w25_{i}")
-                m26, w26 = y3.selectbox("26 Month", months_list, index=3, key=f"m26_{i}"), y4.selectbox("26 Week", weeks_list, key=f"w26_{i}")
+                m25, w25 = y1.selectbox("2025 Month", months_list, index=3, key=f"m25_{i}"), y2.selectbox("2025 Week", weeks_list, key=f"w25_{i}")
+                m26, w26 = y3.selectbox("2026 Month", months_list, index=3, key=f"m26_{i}"), y4.selectbox("2026 Week", weeks_list, key=f"w26_{i}")
                 t2_res = []
                 for w in wards:
                     v25, v26 = get_sum_up_to_week(df_25, w, m25, w25, months_list, weeks_list), get_sum_up_to_week(df_26, w, m26, w26, months_list, weeks_list)
                     t2_res.append({'Ward':w, '2025':v25, '2026':v26, '% Inc/Dec':format_pct(((v26-v25)/v25) if v25 > 0 else 0), '_raw_diff': ((v26-v25)/v25) if v25 > 0 else 0})
                 df2 = display_table(t2_res, ['2025', '2026'], '% Inc/Dec')
 
-                # ३. Cumulative
-                st.subheader("३. Cumulative Comparison")
+                # 3. Cumulative Table
+                st.subheader("3. Cumulative Comparison")
                 cu1, cu2 = st.columns(2)
                 cm, cw = cu1.selectbox("End Month", months_list, index=3, key=f"cm_{i}"), cu2.selectbox("End Week", weeks_list, key=f"cw_{i}")
                 t3_res = []
@@ -148,33 +148,29 @@ try:
                     t3_res.append({'Ward':w, '2025 Cum':v25c, '2026 Cum':v26c, '% Inc/Dec':format_pct(((v26c-v25c)/v25c) if v25c > 0 else 0), '_raw_diff': ((v26c-v25c)/v25c) if v25c > 0 else 0})
                 df3 = display_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
 
-                # ४. Summary
-                st.subheader("४. Summary Trends (%)")
+                # 4. Summary Table
+                st.subheader("4. Summary Trends (%)")
                 t4_res = [{'Ward': w, 'Monthly %': t1_res[idx]['% Inc/Dec'], 'Yearly %': t2_res[idx]['% Inc/Dec'], 'Cum %': t3_res[idx]['% Inc/Dec']} for idx, w in enumerate(wards)]
                 t4_total = {'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'], 'Yearly %': df2.iloc[-1]['% Inc/Dec'], 'Cum %': df3.iloc[-1]['% Inc/Dec']}
                 df4 = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([t4_total])], ignore_index=True)
                 st.table(df4)
 
-                # --- डॅशबोर्ड ग्राफ विभाग ---
+                # --- DASHBOARD GRAPH ---
                 st.markdown("---")
                 st.subheader("📈 Summary Trends Visualization (%)")
-                try:
-                    df_graph = pd.DataFrame(t4_res)
-                    # क्लीनिंग डेटा
-                    for col in ['Monthly %', 'Yearly %', 'Cum %']:
-                        df_graph[col] = df_graph[col].str.replace(' %', '', regex=False).astype(float)
-                    
-                    df_melted = df_graph.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
-                    fig_ui = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
-                    fig_ui.update_traces(textposition="top center") # Labels काढले (Default No labels)
-                    fig_ui.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=500, margin=dict(l=20, r=20, t=30, b=20))
-                    st.plotly_chart(fig_ui, use_container_width=True)
-                except Exception as g_err:
-                    st.warning(f"ग्राफ लोड होताना अडचण आली: {g_err}")
+                df_graph = pd.DataFrame(t4_res)
+                # Convert string percentages to numbers for Plotly
+                for col in ['Monthly %', 'Yearly %', 'Cum %']:
+                    df_graph[col] = df_graph[col].str.replace(' %', '', regex=False).astype(float)
+                
+                df_melted = df_graph.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
+                fig_ui = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
+                fig_ui.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=500)
+                st.plotly_chart(fig_ui, use_container_width=True)
 
-                # Rankings
+                # --- RANKINGS ---
                 st.markdown("---")
-                st.subheader("🏆 रँकिंग्स (Top & Bottom 5)")
+                st.subheader("🏆 Rankings (Top & Bottom 5)")
                 def get_ranks(res_list, m_name):
                     top = sorted(res_list, key=lambda x: x['_raw_diff'], reverse=True)[:5]
                     bot = sorted(res_list, key=lambda x: x['_raw_diff'], reverse=False)[:5]
@@ -190,12 +186,12 @@ try:
                 with r2: st.write("**Yearly**"); st.table(dt_y); st.table(db_y)
                 with r3: st.write("**Cumulative**"); st.table(dt_c); st.table(db_c)
 
-                # --- EXCEL EXPORT (२ SHEETS) ---
+                # --- EXCEL EXPORT (Side-by-Side) ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     workbook = writer.book
                     
-                    # SHEET 1: Trend_Chart
+                    # SHEET 1: CHART
                     ws_chart = workbook.add_worksheet('Trend_Chart')
                     h_fmt = workbook.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1})
                     n_fmt = workbook.add_format({'border':1})
@@ -212,11 +208,11 @@ try:
                         excel_chart.add_series({'name':['Trend_Chart',1,i],'categories':['Trend_Chart',2,0,len(t4_res)+1,0],'values':['Trend_Chart',2,i,len(t4_res)+1,i],'marker':{'type':'circle'}})
                     ws_chart.insert_chart('F2', excel_chart)
 
-                    # SHEET 2: Analysis_Tables (शेजारी-शेजारी लेआउट)
+                    # SHEET 2: TABLES
                     ws_table = workbook.add_worksheet('Analysis_Tables')
                     title_fmt = workbook.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78'})
                     
-                    # मुख्य ४ टेबल्स शेजारी-शेजारी
+                    # 4 Main Tables Side-by-Side
                     offsets = [0, 5, 10, 15]
                     titles = ["1. Monthly", "2. Yearly", "3. Cumulative", "4. Summary Trends"]
                     dfs = [df1, df2, df3, df4]
@@ -224,7 +220,7 @@ try:
                         ws_table.write(0, offsets[idx], titles[idx], title_fmt)
                         ddf.to_excel(writer, sheet_name='Analysis_Tables', startrow=1, startcol=offsets[idx], index=False)
 
-                    # रँकिंग्स खाली
+                    # Rankings below main tables
                     rank_r = len(df1) + 5
                     ws_table.write(rank_r, 0, "🏆 Top 5 Rankings", title_fmt)
                     dt_m.to_excel(writer, sheet_name='Analysis_Tables', startrow=rank_r+1, startcol=0, index=False)
@@ -236,7 +232,7 @@ try:
                     db_y.to_excel(writer, sheet_name='Analysis_Tables', startrow=rank_r+9, startcol=3, index=False)
                     db_c.to_excel(writer, sheet_name='Analysis_Tables', startrow=rank_r+9, startcol=6, index=False)
 
-                st.download_button(label="📥 प्रोफेशनल रिपोर्ट डाऊनलोड करा", data=output.getvalue(), file_name=f"{sheet_name}_Report.xlsx")
+                st.download_button(label="📥 Download Professional Report", data=output.getvalue(), file_name=f"{sheet_name}_Analysis.xlsx")
 
 except Exception as e:
     st.error(f"Error: {e}")
