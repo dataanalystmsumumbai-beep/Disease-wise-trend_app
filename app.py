@@ -4,7 +4,9 @@ import io
 import numpy as np
 import plotly.express as px
 
-# Set page config
+# --- IMPORTANT: kaleido is required for Excel image export ---
+# pip install kaleido==0.1.0post1
+
 st.set_page_config(page_title="Health Analysis Dashboard", layout="wide", initial_sidebar_state="expanded")
 
 # --- 1. Formatting Functions ---
@@ -120,7 +122,7 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- Tables Section ---
+                # --- 1-4 Tables Logic (Same as before) ---
                 c1, c2 = st.columns(2)
                 with c1:
                     st.subheader("1. Monthly Comparison")
@@ -128,8 +130,7 @@ try:
                     m1, m2, wt1 = f1.selectbox("Month 1", months_list, index=2, key=f"m1_{sheet_name}"), f2.selectbox("Month 2", months_list, index=3, key=f"m2_{sheet_name}"), f3.selectbox("Up to", weeks_list, key=f"wt1_{sheet_name}")
                     t1_res = []
                     for w in wards:
-                        v1 = get_sum_up_to_week(df_26, w, m1, wt1, months_list, weeks_list)
-                        v2 = get_sum_up_to_week(df_26, w, m2, wt1, months_list, weeks_list)
+                        v1 = get_sum_up_to_week(df_26, w, m1, wt1, months_list, weeks_list); v2 = get_sum_up_to_week(df_26, w, m2, wt1, months_list, weeks_list)
                         diff = ((v2-v1)/v1) if v1 > 0 else 0
                         t1_res.append({'Ward':w, m1:v1, m2:v2, '% Inc/Dec':format_pct(diff), '_raw_diff': diff})
                     df1 = display_table(t1_res, [m1, m2], '% Inc/Dec')
@@ -141,8 +142,7 @@ try:
                     m25, w25, m26, w26 = f1.selectbox("25 Month", months_list, index=3, key=f"m25_{sheet_name}"), f2.selectbox("25 Week", weeks_list, key=f"w25_{sheet_name}"), f3.selectbox("26 Month", months_list, index=3, key=f"m26_{sheet_name}"), f4.selectbox("26 Week", weeks_list, key=f"w26_{sheet_name}")
                     t2_res = []
                     for w in wards:
-                        v25 = get_sum_up_to_week(df_25, w, m25, w25, months_list, weeks_list)
-                        v26 = get_sum_up_to_week(df_26, w, m26, w26, months_list, weeks_list)
+                        v25 = get_sum_up_to_week(df_25, w, m25, w25, months_list, weeks_list); v26 = get_sum_up_to_week(df_26, w, m26, w26, months_list, weeks_list)
                         diff = ((v26-v25)/v25) if v25 > 0 else 0
                         t2_res.append({'Ward':w, '2025':v25, '2026':v26, '% Inc/Dec':format_pct(diff), '_raw_diff': diff})
                     df2 = display_table(t2_res, ['2025', '2026'], '% Inc/Dec')
@@ -155,8 +155,7 @@ try:
                     cm, cw = f1.selectbox("End Month", months_list, index=3, key=f"cm_{sheet_name}"), f2.selectbox("End Week", weeks_list, key=f"cw_{sheet_name}")
                     t3_res = []
                     for w in wards:
-                        v25c = get_cumulative_sum(df_25, w, cm, cw, months_list, weeks_list)
-                        v26c = get_cumulative_sum(df_26, w, cm, cw, months_list, weeks_list)
+                        v25c = get_cumulative_sum(df_25, w, cm, cw, months_list, weeks_list); v26c = get_cumulative_sum(df_26, w, cm, cw, months_list, weeks_list)
                         diff = ((v26c-v25c)/v25c) if v25c > 0 else 0
                         t3_res.append({'Ward':w, '2025 Cum':v25c, '2026 Cum':v26c, '% Inc/Dec':format_pct(diff), '_raw_diff': diff})
                     df3 = display_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
@@ -170,7 +169,7 @@ try:
                     st.table(df4_final)
                     t4_title = "4. Summary Trends Overview (%)"
 
-                # --- Sorting Logic for Top & Bottom 5 ---
+                # --- Top/Bottom 5 Sorting ---
                 top5_m = sorted(t1_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
                 top5_y = sorted(t2_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
                 top5_c = sorted(t3_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
@@ -179,7 +178,6 @@ try:
                 bot5_y = sorted(t2_res, key=lambda x: x['_raw_diff'], reverse=False)[:5]
                 bot5_c = sorted(t3_res, key=lambda x: x['_raw_diff'], reverse=False)[:5]
 
-                # DataFrames for UI and Excel
                 df_top_m = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_m])
                 df_top_y = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_y])
                 df_top_c = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_c])
@@ -188,95 +186,89 @@ try:
                 df_bot_y = pd.DataFrame([{'Ward': x['Ward'], 'Decrease': format_pct(x['_raw_diff'])} for x in bot5_y])
                 df_bot_c = pd.DataFrame([{'Ward': x['Ward'], 'Decrease': format_pct(x['_raw_diff'])} for x in bot5_c])
 
-                # --- Top 5 UI ---
+                # --- Top/Bottom UI ---
                 st.markdown("---")
-                st.subheader("🏆 Top 5 Wards (Highest % Increase)")
-                top_c1, top_c2, top_c3 = st.columns(3)
-                with top_c1: st.write("**Top 5: Monthly %**"); st.table(df_top_m)
-                with top_c2: st.write("**Top 5: Yearly %**"); st.table(df_top_y)
-                with top_c3: st.write("**Top 5: Cumulative %**"); st.table(df_top_c)
+                st.subheader("🏆 Top 5 Wards")
+                tc1, tc2, tc3 = st.columns(3)
+                with tc1: st.write("Monthly"); st.table(df_top_m)
+                with tc2: st.write("Yearly"); st.table(df_top_y)
+                with tc3: st.write("Cumulative"); st.table(df_top_c)
 
-                # --- Bottom 5 UI ---
-                st.markdown("---")
-                st.subheader("📉 Bottom 5 Wards (Lowest % Increase / Highest Decrease)")
-                bot_c1, bot_c2, bot_c3 = st.columns(3)
-                with bot_c1: st.write("**Bottom 5: Monthly %**"); st.table(df_bot_m)
-                with bot_c2: st.write("**Bottom 5: Yearly %**"); st.table(df_bot_y)
-                with bot_c3: st.write("**Bottom 5: Cumulative %**"); st.table(df_bot_c)
+                st.subheader("📉 Bottom 5 Wards")
+                bc1, bc2, bc3 = st.columns(3)
+                with bc1: st.write("Monthly"); st.table(df_bot_m)
+                with bc2: st.write("Yearly"); st.table(df_bot_y)
+                with bc3: st.write("Cumulative"); st.table(df_bot_c)
 
-                # --- Chart Section ---
+                # --- Chart ---
                 st.markdown("---")
-                st.subheader("📈 Trend Visualization (Wards Only)")
-                
                 df_chart = pd.DataFrame(t4_res)
-                for col in ['Monthly %', 'Yearly %', 'Cum %']:
-                    df_chart[col] = df_chart[col].str.replace(' %', '').astype(float)
+                for col in ['Monthly %', 'Yearly %', 'Cum %']: df_chart[col] = df_chart[col].str.replace(' %', '').astype(float)
                 df_melted = df_chart.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
-                
                 fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
-                fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=600)
+                fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=500)
                 st.plotly_chart(fig, use_container_width=True)
-                st.markdown("<br>", unsafe_allow_html=True)
 
-                # --- Single Download Button (All-in-one Excel) ---
+                # --- ALL-IN-ONE EXCEL DOWNLOAD ---
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
-                    wb, ws = writer.book, writer.book.add_worksheet("Dashboard_Report")
+                # Important: engine is xlsxwriter
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    wb = writer.book
+                    ws = wb.add_worksheet("Analysis_Report")
+                    
+                    # Formats
                     h_fmt = wb.add_format({'bold':True, 'bg_color':'#D7E4BC', 'border':1, 'align':'center'})
                     c_fmt = wb.add_format({'border':1, 'align':'center'})
-                    t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78', 'text_wrap': True})
-                    title_fmt = wb.add_format({'bold':True, 'font_size':14, 'bg_color':'#4472C4', 'font_color':'white', 'align':'center'})
+                    t_fmt = wb.add_format({'bold':True, 'font_size':12, 'font_color':'#1F4E78'})
 
-                    def write_block(df, start_row, start_col, title):
-                        if '_raw_diff' in df.columns: df_c = df.drop(columns=['_raw_diff'])
-                        else: df_c = df.copy()
-                        df_c = df_c.replace([np.inf, -np.inf], 0).fillna(0)
-                        
-                        ws.merge_range(start_row, start_col, start_row, start_col + len(df_c.columns) - 1, title, t_fmt)
-                        for c, col in enumerate(df_c.columns): ws.write(start_row+2, start_col+c, col, h_fmt)
-                        for r, row in enumerate(df_c.values):
-                            for c, val in enumerate(row): ws.write(start_row+3+r, start_col+c, val, c_fmt)
-                        return start_col + len(df_c.columns) + 1
+                    def write_df(df, r, c, title):
+                        if '_raw_diff' in df.columns: df = df.drop(columns=['_raw_diff'])
+                        ws.write(r, c, title, t_fmt)
+                        # Header
+                        for col_num, value in enumerate(df.columns.values):
+                            ws.write(r+1, c+col_num, value, h_fmt)
+                        # Data
+                        for row_num, row_data in enumerate(df.values):
+                            for col_num, value in enumerate(row_data):
+                                ws.write(r+2+row_num, c+col_num, value, c_fmt)
+                        return r + len(df) + 4
 
-                    # Write Main Tables (Row 0)
-                    c1 = write_block(df1, 0, 0, t1_title)
-                    c2 = write_block(df2, 0, c1, t2_title)
-                    c3 = write_block(df3, 0, c2, t3_title)
-                    write_block(df4_final, 0, c3, t4_title)
+                    # Writing blocks
+                    next_r = write_df(df1, 0, 0, t1_title)
+                    next_r = write_df(df2, next_r, 0, t2_title)
+                    next_r = write_df(df3, next_r, 0, t3_title)
+                    next_r = write_df(df4_final, next_r, 0, "4. Summary Trends")
+                    
+                    # Top/Bottom 5
+                    ws.write(next_r, 0, "🏆 Top 5 Wards", t_fmt)
+                    write_df(df_top_m, next_r+1, 0, "Monthly")
+                    write_df(df_top_y, next_r+1, 3, "Yearly")
+                    next_r = write_df(df_top_c, next_r+1, 6, "Cumulative")
 
-                    # Dynamic Row Offset for Top/Bottom 5
-                    max_table_len = max(len(df1), len(df2), len(df3), len(df4_final))
-                    top5_row = max_table_len + 5
+                    ws.write(next_r, 0, "📉 Bottom 5 Wards", t_fmt)
+                    write_df(df_bot_m, next_r+1, 0, "Monthly")
+                    write_df(df_bot_y, next_r+1, 3, "Yearly")
+                    next_r = write_df(df_bot_c, next_r+1, 6, "Cumulative")
 
-                    # Write Top 5 Tables
-                    ws.merge_range(top5_row, 0, top5_row, 5, "🏆 Top 5 Wards (Highest % Increase)", title_fmt)
-                    tc1 = write_block(df_top_m, top5_row + 2, 0, "Top 5: Monthly %")
-                    tc2 = write_block(df_top_y, top5_row + 2, tc1, "Top 5: Yearly %")
-                    write_block(df_top_c, top5_row + 2, tc2, "Top 5: Cumulative %")
-
-                    bot5_row = top5_row + 10
-
-                    # Write Bottom 5 Tables
-                    ws.merge_range(bot5_row, 0, bot5_row, 5, "📉 Bottom 5 Wards (Lowest % / Highest Decrease)", title_fmt)
-                    bc1 = write_block(df_bot_m, bot5_row + 2, 0, "Bottom 5: Monthly %")
-                    bc2 = write_block(df_bot_y, bot5_row + 2, bc1, "Bottom 5: Yearly %")
-                    write_block(df_bot_c, bot5_row + 2, bc2, "Bottom 5: Cumulative %")
-
-                    # Insert Chart Image below all tables
-                    chart_row = bot5_row + 10
+                    # INSERT CHART
                     try:
-                        img_bytes = io.BytesIO()
-                        fig.write_image(img_bytes, format='png', engine='kaleido')
-                        ws.insert_image(chart_row, 0, "chart.png", {'image_data': img_bytes})
-                    except Exception:
-                        pass # if kaleido is not installed
-                
-                # Single Unified Download Button
-                st.download_button(label=f"📥 Download Complete Report (Excel & Chart)", data=output.getvalue(),
-                                   file_name=f"{sheet_name}_Complete_Report.xlsx", key=f"dl_all_{sheet_name}")
+                        # Try generating image
+                        img_data = fig.to_image(format="png", engine="kaleido")
+                        chart_img = io.BytesIO(img_data)
+                        ws.insert_image(next_r + 2, 0, 'chart.png', {'image_data': chart_img, 'x_scale': 0.8, 'y_scale': 0.8})
+                    except Exception as e:
+                        st.warning(f"Excel मध्ये चार्ट लोड झाला नाही. कृपया टर्मिनलमध्ये 'pip install kaleido==0.1.0post1' रन करा. Error: {e}")
+
+                st.download_button(
+                    label=f"📥 Download Everything as Excel ({sheet_name})",
+                    data=output.getvalue(),
+                    file_name=f"{sheet_name}_Full_Analysis.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"btn_{sheet_name}"
+                )
 
     else:
-        st.info("👈 Please select a data source.")
+        st.info("👈 Please select a data source from the sidebar.")
 
 except Exception as e:
-    st.error(f"Something went wrong: {e}")
+    st.error(f"Error: {e}")
