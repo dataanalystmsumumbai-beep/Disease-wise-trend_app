@@ -8,4 +8,4 @@ st-gsheets-connection
 requests
 beautifulsoup4
 xlsxwriter
-kaleido==0.1.0post1
+kaleido
