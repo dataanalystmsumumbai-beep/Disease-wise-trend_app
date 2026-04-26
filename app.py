@@ -138,13 +138,13 @@ try:
                 df3 = calculate_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
                 st.table(df3)
 
-                # 4. Summary Trend
+                # 4. Summary Trend Overview
                 st.subheader("4. Summary Trends Overview (%)")
                 t4_res = [{'Ward': w, 'Monthly %': t1_res[idx]['% Inc/Dec'], 'Yearly %': t2_res[idx]['% Inc/Dec'], 'Cum %': t3_res[idx]['% Inc/Dec']} for idx, w in enumerate(wards)]
                 df4 = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([{'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'], 'Yearly %': df2.iloc[-1]['% Inc/Dec'], 'Cum %': df3.iloc[-1]['% Inc/Dec']}])], ignore_index=True)
                 st.table(df4)
 
-                # --- DASHBOARD GRAPH ---
+                # Graph
                 st.markdown("---")
                 st.subheader("📈 Summary Trends Visualization")
                 df_graph = pd.DataFrame(t4_res)
@@ -154,61 +154,61 @@ try:
                 fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # --- EXCEL EXPORT (AS PER IMAGE LAYOUT) ---
+                # Ranking Calculations
+                def get_rank_dfs(res_list, col_name):
+                    top = pd.DataFrame([{'Ward': x['Ward'], col_name: x['% Inc/Dec']} for x in sorted(res_list, key=lambda x: x['_raw_diff'], reverse=True)[:5]])
+                    bot = pd.DataFrame([{'Ward': x['Ward'], col_name: x['% Inc/Dec']} for x in sorted(res_list, key=lambda x: x['_raw_diff'], reverse=False)[:5]])
+                    return top, bot
+
+                dt_m, db_m = get_rank_dfs(t1_res, "Monthly %")
+                dt_y, db_y = get_rank_dfs(t2_res, "Yearly %")
+                dt_c, db_c = get_rank_dfs(t3_res, "Cum %")
+
+                # Excel Export logic
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     workbook = writer.book
-                    # Formatting
                     header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D9E1F2', 'border': 1, 'align': 'center'})
                     cell_fmt = workbook.add_format({'border': 1, 'align': 'center'})
                     title_fmt = workbook.add_format({'bold': True, 'font_size': 11, 'font_color': '#1F4E78'})
                     
-                    # Sheet: Analysis_Tables
                     ws_t = workbook.add_worksheet('Analysis_Tables')
-                    
-                    # Define Titles based on Image
                     titles = [
                         f"1. Monthly Comparison (2026): {m1} vs {m2} (Up to {wt1})",
                         f"2. Yearly Comparison: 2025 ({m25}-{w25}) vs 2026 ({m26}-{w26})",
                         f"3. Cumulative: Jan to {cm} ({cw})",
                         "4. Summary Trends Overview (%)"
                     ]
-                    
-                    offsets = [0, 5, 10, 15] # Column offsets for side-by-side
+                    offsets = [0, 5, 10, 15]
                     table_dfs = [df1, df2, df3, df4]
                     
                     for idx, df_to_write in enumerate(table_dfs):
-                        # Write Table Title (Merging across 4 columns for clean look)
                         ws_t.merge_range(0, offsets[idx], 0, offsets[idx] + 3, titles[idx], title_fmt)
-                        
-                        # Write Headers
                         for c_idx, col_name in enumerate(df_to_write.columns):
                             ws_t.write(1, offsets[idx] + c_idx, col_name, header_fmt)
-                        
-                        # Write Data Rows
                         for r_idx, row_val in enumerate(df_to_write.values):
                             for c_idx, val in enumerate(row_val):
                                 ws_t.write(r_idx + 2, offsets[idx] + c_idx, val, cell_fmt)
 
-                    # Rankings (Placed below main tables)
-                    def get_rank_dfs(res_list, col_name):
-                        top = pd.DataFrame([{'Ward': x['Ward'], col_name: x['% Inc/Dec']} for x in sorted(res_list, key=lambda x: x['_raw_diff'], reverse=True)[:5]])
-                        bot = pd.DataFrame([{'Ward': x['Ward'], col_name: x['% Inc/Dec']} for x in sorted(res_list, key=lambda x: x['_raw_diff'], reverse=False)[:5]])
-                        return top, bot
-
-                    dt_m, db_m = get_rank_dfs(t1_res, "Monthly %")
-                    dt_y, db_y = get_rank_dfs(t2_res, "Yearly %")
-                    dt_c, db_c = get_rank_dfs(t3_res, "Cum %")
-
-                    rank_start_row = len(df1) + 5
-                    ws_t.write(rank_start_row, 0, "🏆 Top 5 Increase", title_fmt)
+                    # Top 5 Rankings
+                    rank_row = len(df1) + 5
+                    ws_t.write(rank_row, 0, "🏆 Top 5 Increase", title_fmt)
                     rank_tops = [dt_m, dt_y, dt_c]
                     for idx, rdf in enumerate(rank_tops):
-                        for c_idx, col_name in enumerate(rdf.columns): ws_t.write(rank_start_row+1, (idx*3)+c_idx, col_name, header_fmt)
+                        for c_idx, col_name in enumerate(rdf.columns): ws_t.write(rank_row+1, (idx*3)+c_idx, col_name, header_fmt)
                         for r_idx, row_val in enumerate(rdf.values):
-                            for c_idx, val in enumerate(row_val): ws_t.write(rank_start_row+2+r_idx, (idx*3)+c_idx, val, cell_fmt)
+                            for c_idx, val in enumerate(row_val): ws_t.write(rank_row+2+r_idx, (idx*3)+c_idx, val, cell_fmt)
 
-                    # Sheet: Trend_Chart (For the visual graph in Excel)
+                    # Bottom 5 Rankings
+                    bot_row = rank_row + 8
+                    ws_t.write(bot_row, 0, "📉 Bottom 5 Decrease", title_fmt)
+                    rank_bots = [db_m, db_y, db_c]
+                    for idx, rdf in enumerate(rank_bots):
+                        for c_idx, col_name in enumerate(rdf.columns): ws_t.write(bot_row+1, (idx*3)+c_idx, col_name, header_fmt)
+                        for r_idx, row_val in enumerate(rdf.values):
+                            for c_idx, val in enumerate(row_val): ws_t.write(bot_row+2+r_idx, (idx*3)+c_idx, val, cell_fmt)
+
+                    # Chart Sheet
                     ws_c = workbook.add_worksheet('Trend_Chart')
                     for c, h in enumerate(["Ward", "Monthly %", "Yearly %", "Cum %"]): ws_c.write(0, c, h, header_fmt)
                     for r, row in enumerate(t4_res):
@@ -216,7 +216,6 @@ try:
                         ws_c.write(r+1, 1, float(row['Monthly %'].replace(' %','')), cell_fmt)
                         ws_c.write(r+1, 2, float(row['Yearly %'].replace(' %','')), cell_fmt)
                         ws_c.write(r+1, 3, float(row['Cum %'].replace(' %','')), cell_fmt)
-                    
                     excel_chart = workbook.add_chart({'type': 'line'})
                     for i in range(1, 4):
                         excel_chart.add_series({'name':['Trend_Chart',0,i],'categories':['Trend_Chart',1,0,len(t4_res),0],'values':['Trend_Chart',1,i,len(t4_res),i],'marker':{'type':'circle'}})
