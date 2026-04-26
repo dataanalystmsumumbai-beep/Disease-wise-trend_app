@@ -79,7 +79,9 @@ def get_cumulative_sum(df, ward, end_month, end_week, all_months, all_weeks):
     return int(df[df['Ward'] == ward][target_cols].values.sum())
 
 def display_table(data_list, numeric_cols, pct_col_name=None):
-    df = pd.DataFrame(data_list)
+    # Remove hidden '_raw_diff' column before displaying
+    clean_list = [{k:v for k,v in d.items() if k != '_raw_diff'} for d in data_list]
+    df = pd.DataFrame(clean_list)
     total_row = {'Ward': 'Total'}
     for col in numeric_cols:
         total_row[col] = int(df[col].sum())
@@ -119,7 +121,7 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- Tables Section (Top) ---
+                # --- Tables Section ---
                 c1, c2 = st.columns(2)
                 with c1:
                     st.subheader("1. Monthly Comparison")
@@ -130,7 +132,7 @@ try:
                         v1 = get_sum_up_to_week(df_26, w, m1, wt1, months_list, weeks_list)
                         v2 = get_sum_up_to_week(df_26, w, m2, wt1, months_list, weeks_list)
                         diff = ((v2-v1)/v1) if v1 > 0 else 0
-                        t1_res.append({'Ward':w, m1:v1, m2:v2, '% Inc/Dec':format_pct(diff)})
+                        t1_res.append({'Ward':w, m1:v1, m2:v2, '% Inc/Dec':format_pct(diff), '_raw_diff': diff})
                     df1 = display_table(t1_res, [m1, m2], '% Inc/Dec')
                     t1_title = f"1. Monthly Comparison (2026): {m1} vs {m2} (Up to {wt1})"
 
@@ -143,7 +145,7 @@ try:
                         v25 = get_sum_up_to_week(df_25, w, m25, w25, months_list, weeks_list)
                         v26 = get_sum_up_to_week(df_26, w, m26, w26, months_list, weeks_list)
                         diff = ((v26-v25)/v25) if v25 > 0 else 0
-                        t2_res.append({'Ward':w, '2025':v25, '2026':v26, '% Inc/Dec':format_pct(diff)})
+                        t2_res.append({'Ward':w, '2025':v25, '2026':v26, '% Inc/Dec':format_pct(diff), '_raw_diff': diff})
                     df2 = display_table(t2_res, ['2025', '2026'], '% Inc/Dec')
                     t2_title = f"2. Yearly Comparison: 2025 ({m25}-{w25}) vs 2026 ({m26}-{w26})"
 
@@ -157,7 +159,7 @@ try:
                         v25c = get_cumulative_sum(df_25, w, cm, cw, months_list, weeks_list)
                         v26c = get_cumulative_sum(df_26, w, cm, cw, months_list, weeks_list)
                         diff = ((v26c-v25c)/v25c) if v25c > 0 else 0
-                        t3_res.append({'Ward':w, '2025 Cum':v25c, '2026 Cum':v26c, '% Inc/Dec':format_pct(diff)})
+                        t3_res.append({'Ward':w, '2025 Cum':v25c, '2026 Cum':v26c, '% Inc/Dec':format_pct(diff), '_raw_diff': diff})
                     df3 = display_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
                     t3_title = f"3. Cumulative: Jan to {cm} ({cw})"
 
@@ -169,8 +171,8 @@ try:
                     st.table(df4_final)
                     t4_title = "4. Summary Trends Overview (%)"
 
-                # --- Chart Section (Full Width, Below Tables) ---
-                st.markdown("---") # लाइन सेपरेटर
+                # --- Chart Section ---
+                st.markdown("---")
                 st.subheader("📈 Trend Visualization (Wards Only)")
                 
                 df_chart = pd.DataFrame(t4_res)
@@ -178,18 +180,42 @@ try:
                     df_chart[col] = df_chart[col].str.replace(' %', '').astype(float)
                 df_melted = df_chart.melt(id_vars='Ward', var_name='Metric', value_name='Percentage')
                 
-                # चार्टची उंची वाढवली आहे (height=600)
                 fig = px.line(df_melted, x='Ward', y='Percentage', color='Metric', markers=True)
                 fig.update_layout(xaxis_title="Wards", yaxis_title="Percentage (%)", height=600)
                 st.plotly_chart(fig, use_container_width=True)
 
-                st.markdown("<br>", unsafe_allow_html=True) # थोडी जागा सोडण्यासाठी
+                # --- Top 5 Wards Section ---
+                st.markdown("---")
+                st.subheader("🏆 Top 5 Wards (Highest % Increase)")
+                top_c1, top_c2, top_c3 = st.columns(3)
+                
+                # Sort the dictionaries by the hidden _raw_diff key in descending order
+                top5_m = sorted(t1_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
+                top5_y = sorted(t2_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
+                top5_c = sorted(t3_res, key=lambda x: x['_raw_diff'], reverse=True)[:5]
+
+                with top_c1:
+                    st.write("**Top 5: Monthly %**")
+                    df_top_m = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_m])
+                    st.table(df_top_m)
+
+                with top_c2:
+                    st.write("**Top 5: Yearly %**")
+                    df_top_y = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_y])
+                    st.table(df_top_y)
+
+                with top_c3:
+                    st.write("**Top 5: Cumulative %**")
+                    df_top_c = pd.DataFrame([{'Ward': x['Ward'], 'Increase': format_pct(x['_raw_diff'])} for x in top5_c])
+                    st.table(df_top_c)
+
+                st.markdown("<br>", unsafe_allow_html=True)
 
                 # --- Download Buttons Section ---
                 d_col1, d_col2 = st.columns(2)
                 
                 with d_col1:
-                    # Excel Report Download Logic
+                    # Excel Report Download Logic with Chart Image embedded
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
                         wb, ws = writer.book, writer.book.add_worksheet("Analysis")
@@ -198,7 +224,13 @@ try:
                         t_fmt = wb.add_format({'bold':True, 'font_size':11, 'font_color':'#1F4E78', 'text_wrap': True})
                         
                         def write_side(df, start_col, title):
-                            df_c = df.replace([np.inf, -np.inf], 0).fillna(0)
+                            # Remove _raw_diff column if it exists in df before writing to Excel
+                            if '_raw_diff' in df.columns:
+                                df_c = df.drop(columns=['_raw_diff'])
+                            else:
+                                df_c = df.copy()
+                            
+                            df_c = df_c.replace([np.inf, -np.inf], 0).fillna(0)
                             ws.merge_range(0, start_col, 0, start_col + len(df_c.columns) - 1, title, t_fmt)
                             for c, col in enumerate(df_c.columns): ws.write(2, start_col+c, col, h_fmt)
                             for r, row in enumerate(df_c.values):
@@ -209,14 +241,22 @@ try:
                         curr = write_side(df2, curr, t2_title)
                         curr = write_side(df3, curr, t3_title)
                         write_side(df4_final, curr, t4_title)
+
+                        # Insert Plotly Chart into Excel
+                        try:
+                            img_bytes = io.BytesIO()
+                            fig.write_image(img_bytes, format='png', engine='kaleido')
+                            max_row = len(df1) + 6 # Place below the longest table
+                            ws.insert_image(max_row, 0, "chart.png", {'image_data': img_bytes})
+                        except Exception as e:
+                            pass # kaleido is missing, image simply won't be embedded
                     
                     st.download_button(label=f"📥 Download {sheet_name} Report (Excel)", data=output.getvalue(),
                                        file_name=f"{sheet_name}_Report.xlsx", key=f"dl_excel_{sheet_name}")
 
                 with d_col2:
-                    # Chart Download Logic (HTML format)
                     chart_html = fig.to_html(include_plotlyjs="cdn").encode('utf-8')
-                    st.download_button(label=f"📊 Download {sheet_name} Chart", data=chart_html,
+                    st.download_button(label=f"📊 Download {sheet_name} Chart Only", data=chart_html,
                                        file_name=f"{sheet_name}_Chart.html", mime="text/html", key=f"dl_chart_{sheet_name}")
 
     else:
