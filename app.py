@@ -102,7 +102,7 @@ try:
         data_dict = load_from_file(uploaded_file) if uploaded_file else None
 
     if data_dict:
-        st.title("📊 Ward-wise trend analysis for the years 2025 and 2026")
+        st.title("📊 Health Infrastructure & Trend Analysis")
         tabs = st.tabs(list(data_dict.keys()))
         months_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"]
@@ -112,11 +112,27 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
+                # --- DYNAMIC DATA DETECTION ---
+                active_m, active_w = "Jan", "WEEK 1"
+                data_cols = [c for c in df_26.columns if '_' in c]
+                for col in data_cols:
+                    if df_26[col].sum() > 0: # Check if column has data
+                        parts = col.split('_')
+                        if len(parts) == 2:
+                            active_m, active_w = parts[0], parts[1]
+                
+                # Setup default indexes based on actual data
+                m_idx = months_list.index(active_m) if active_m in months_list else 0
+                w_idx = weeks_list.index(active_w) if active_w in weeks_list else 0
+                prev_m_idx = max(0, m_idx - 1)
+
                 # 1. Monthly
                 st.subheader("1. Monthly Comparison")
                 c1, c2, c3 = st.columns(3)
-                m1, m2 = c1.selectbox("Start Month", months_list, index=2, key=f"m1_{i}"), c2.selectbox("End Month", months_list, index=3, key=f"m2_{i}")
-                wt1 = c3.selectbox("Week", weeks_list, key=f"wt1_{i}")
+                m1 = c1.selectbox("Start Month", months_list, index=prev_m_idx, key=f"m1_{i}")
+                m2 = c2.selectbox("End Month", months_list, index=m_idx, key=f"m2_{i}")
+                wt1 = c3.selectbox("Week", weeks_list, index=w_idx, key=f"wt1_{i}")
+                
                 t1_res = [{'Ward':w, m1: (v1:=get_sum_up_to_week(df_26, w, m1, wt1, months_list, weeks_list)), m2: (v2:=get_sum_up_to_week(df_26, w, m2, wt1, months_list, weeks_list)), '% Inc/Dec':format_pct(((v2-v1)/v1) if v1 > 0 else 0), '_raw_diff': ((v2-v1)/v1) if v1 > 0 else 0} for w in wards]
                 df1 = calculate_table(t1_res, [m1, m2], '% Inc/Dec')
                 st.table(df1)
@@ -124,8 +140,11 @@ try:
                 # 2. Yearly
                 st.subheader("2. Yearly Comparison")
                 y1, y2, y3, y4 = st.columns(4)
-                m25, w25 = y1.selectbox("2025 Month", months_list, index=3, key=f"m25_{i}"), y2.selectbox("2025 Week", weeks_list, key=f"w25_{i}")
-                m26, w26 = y3.selectbox("2026 Month", months_list, index=3, key=f"m26_{i}"), y4.selectbox("2026 Week", weeks_list, key=f"w26_{i}")
+                m25 = y1.selectbox("2025 Month", months_list, index=m_idx, key=f"m25_{i}")
+                w25 = y2.selectbox("2025 Week", weeks_list, index=w_idx, key=f"w25_{i}")
+                m26 = y3.selectbox("2026 Month", months_list, index=m_idx, key=f"m26_{i}")
+                w26 = y4.selectbox("2026 Week", weeks_list, index=w_idx, key=f"w26_{i}")
+                
                 t2_res = [{'Ward':w, '2025': (v25:=get_sum_up_to_week(df_25, w, m25, w25, months_list, weeks_list)), '2026': (v26:=get_sum_up_to_week(df_26, w, m26, w26, months_list, weeks_list)), '% Inc/Dec':format_pct(((v26-v25)/v25) if v25 > 0 else 0), '_raw_diff': ((v26-v25)/v25) if v25 > 0 else 0} for w in wards]
                 df2 = calculate_table(t2_res, ['2025', '2026'], '% Inc/Dec')
                 st.table(df2)
@@ -133,7 +152,9 @@ try:
                 # 3. Cumulative
                 st.subheader("3. Cumulative Comparison")
                 cu1, cu2 = st.columns(2)
-                cm, cw = cu1.selectbox("Month", months_list, index=3, key=f"cm_{i}"), cu2.selectbox("Week", weeks_list, key=f"cw_{i}")
+                cm = cu1.selectbox("Month", months_list, index=m_idx, key=f"cm_{i}")
+                cw = cu2.selectbox("Week", weeks_list, index=w_idx, key=f"cw_{i}")
+                
                 t3_res = [{'Ward':w, '2025 Cum': (v25c:=get_cumulative_sum(df_25, w, cm, cw, months_list, weeks_list)), '2026 Cum': (v26c:=get_cumulative_sum(df_26, w, cm, cw, months_list, weeks_list)), '% Inc/Dec':format_pct(((v26c-v25c)/v25c) if v25c > 0 else 0), '_raw_diff': ((v26c-v25c)/v25c) if v25c > 0 else 0} for w in wards]
                 df3 = calculate_table(t3_res, ['2025 Cum', '2026 Cum'], '% Inc/Dec')
                 st.table(df3)
