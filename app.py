@@ -23,7 +23,7 @@ def get_xlsx_url(url):
     return url
 
 # --- 2. Data Processing (Updated for Dynamic Refresh) ---
-@st.cache_data(ttl=600) # Cache will automatically clear after 10 minutes
+@st.cache_data(ttl=600) # Cache will auto-clear every 10 minutes
 def process_excel_data(_xls):
     all_data = {}
     for sheet in _xls.sheet_names:
@@ -105,13 +105,13 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- IMPROVED DYNAMIC DETECTION ---
-                # Search for the last column that contains data (greater than zero)
+                # --- Improved Dynamic Detection ---
+                # Find the last column which has actual data (greater than zero)
                 all_metric_cols = [c for c in df_26.columns if '_' in c]
                 active_col = all_metric_cols[0] 
                 for col in all_metric_cols:
                     if df_26[col].sum() > 0:
-                        active_col = col # This will be the last filled column
+                        active_col = col
 
                 active_m, active_w = active_col.split('_')
                 m_idx = months_list.index(active_m) if active_m in months_list else 0
