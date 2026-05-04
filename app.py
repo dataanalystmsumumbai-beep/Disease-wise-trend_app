@@ -152,7 +152,7 @@ try:
                 st.table(df3)
 
                 # 4. Summary Trend Overview
-                st.subheader("4. Summary Trend Overview (%)")
+                st.subheader("4. Summary Trends Overview (%)")
                 t4_res = [{'Ward': w, 'Monthly %': t1_res[idx]['% Inc/Dec'], 'Yearly %': t2_res[idx]['% Inc/Dec'], 'Cum %': t3_res[idx]['% Inc/Dec']} for idx, w in enumerate(wards)]
                 df4 = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([{'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'], 'Yearly %': df2.iloc[-1]['% Inc/Dec'], 'Cum %': df3.iloc[-1]['% Inc/Dec']}])], ignore_index=True)
                 st.table(df4)
