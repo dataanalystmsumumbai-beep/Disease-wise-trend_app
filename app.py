@@ -23,7 +23,7 @@ def get_xlsx_url(url):
     return url
 
 # --- 2. Data Processing (Updated for Dynamic Refresh) ---
-@st.cache_data(ttl=600) # Cache will auto-clear every 10 minutes
+@st.cache_data(ttl=600) # 10 मिनिटांनी कॅशे आपोआप क्लियर होईल
 def process_excel_data(_xls):
     all_data = {}
     for sheet in _xls.sheet_names:
@@ -105,13 +105,13 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- Improved Dynamic Detection ---
-                # Find the last column which has actual data (greater than zero)
+                # --- 🔴 IMPROVED DYNAMIC DETECTION ---
+                # शेवटचा कॉलम ज्यामध्ये डेटा (शून्यापेक्षा जास्त) भरलेला आहे तो शोधणे
                 all_metric_cols = [c for c in df_26.columns if '_' in c]
                 active_col = all_metric_cols[0] 
                 for col in all_metric_cols:
                     if df_26[col].sum() > 0:
-                        active_col = col
+                        active_col = col # हा शेवटचा भरलेला कॉलम असेल
 
                 active_m, active_w = active_col.split('_')
                 m_idx = months_list.index(active_m) if active_m in months_list else 0
@@ -175,10 +175,11 @@ try:
                 r_bot1, r_bot2, r_bot3 = st.columns(3)
                 r_bot1.table(db_m); r_bot2.table(db_y); r_bot3.table(db_c)
 
-                # Export Logic
+                # Export Logic (Remains professional and same)
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df1.to_excel(writer, sheet_name='Analysis', startrow=1)
+                    # (Rest of excel code remains same as before...)
 
                 st.download_button(label="📥 Download Report", data=output.getvalue(), file_name=f"{sheet_name}_Analysis.xlsx")
 
