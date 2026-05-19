@@ -28,18 +28,32 @@ def process_excel_data(_xls):
     all_data = {}
     for sheet in _xls.sheet_names:
         df_raw = pd.read_excel(_xls, sheet_name=sheet, header=None)
-        months = df_raw.iloc[0, 2:].ffill().tolist()
-        weeks = df_raw.iloc[1, 2:].tolist()
+        
+        # --- ROBUST HEADER EXTRACTION (Fix for future months like May, Jun) ---
+        # Automatically clean and format months to strictly 3 letters (e.g., "MAY", "May ", "April" -> "May", "Apr")
+        raw_months = df_raw.iloc[0, 2:].ffill().astype(str).str.strip().tolist()
+        months = [m[:3].capitalize() if m.lower() != 'nan' else 'Unknown' for m in raw_months]
+        
+        # Clean and format weeks (e.g., "WEEK 1", "week 1", "WEEK  1" -> "WEEK 1")
+        raw_weeks = df_raw.iloc[1, 2:].astype(str).str.strip().str.upper().tolist()
+        weeks = [w.replace("  ", " ") if w.lower() != 'nan' else 'Unknown' for w in raw_weeks]
+        
         cols = ['Ward', 'Total'] + [f"{m}_{w}" for m, w in zip(months, weeks)]
         data = df_raw.iloc[2:].copy()
         data.columns = cols[:len(data.columns)]
+        
+        # Ensure column renaming if the source uses "Zone/Administrative Ward Name"
+        if 'Zone/Administrative Ward Name' in data.columns:
+            data.rename(columns={'Zone/Administrative Ward Name': 'Ward'}, inplace=True)
         
         ward_a_indices = data[data['Ward'] == 'A'].index.tolist()
         if len(ward_a_indices) >= 2:
             df_25 = data.loc[ward_a_indices[0]:ward_a_indices[1]-2].copy()
             df_26 = data.loc[ward_a_indices[1]-1:].copy()
         else:
-            df_25, df_26 = data.iloc[:56], data.iloc[56:]
+            # Safe Fallback just in case rows shift
+            half = len(data) // 2
+            df_25, df_26 = data.iloc[:half].copy(), data.iloc[half:].copy()
         
         for c in data.columns[1:]:
             df_25[c] = pd.to_numeric(df_25[c], errors='coerce').fillna(0).astype(int)
@@ -63,10 +77,12 @@ def get_sum_up_to_week(df, ward, month, week_str, all_months, all_weeks):
     if week_str not in all_weeks: return 0
     w_idx = all_weeks.index(week_str)
     target_cols = [f"{month}_{all_weeks[i]}" for i in range(w_idx + 1) if f"{month}_{all_weeks[i]}" in df.columns]
+    if not target_cols: return 0
     val = df[df['Ward'] == ward][target_cols].values.sum()
     return int(val)
 
 def get_cumulative_sum(df, ward, end_month, end_week, all_months, all_weeks):
+    if end_month not in all_months: return 0
     m_idx = all_months.index(end_month)
     target_cols = []
     for m in all_months[:m_idx+1]:
@@ -75,15 +91,18 @@ def get_cumulative_sum(df, ward, end_month, end_week, all_months, all_weeks):
             if c_name in df.columns: target_cols.append(c_name)
             if m == end_month and w == end_week: break
         if m == end_month: break
+    if not target_cols: return 0
     return int(df[df['Ward'] == ward][target_cols].values.sum())
 
 def calculate_table(data_list, numeric_cols, pct_col_name=None):
     df = pd.DataFrame([{k:v for k,v in d.items() if k != '_raw_diff'} for d in data_list])
+    if df.empty: return df
     total_row = {'Ward': 'Total'}
     for col in numeric_cols:
-        total_row[col] = int(df[col].sum())
+        if col in df.columns:
+            total_row[col] = int(df[col].sum())
     if pct_col_name and len(numeric_cols) >= 2:
-        v1, v2 = total_row[numeric_cols[0]], total_row[numeric_cols[1]]
+        v1, v2 = total_row.get(numeric_cols[0], 0), total_row.get(numeric_cols[1], 0)
         diff = ((v2 - v1) / v1) if v1 > 0 else 0
         total_row[pct_col_name] = format_pct(diff)
     return pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
@@ -105,21 +124,24 @@ try:
         st.title("📊 Health Infrastructure & Trend Analysis")
         tabs = st.tabs(list(data_dict.keys()))
         months_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"]
+        weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4", "WEEK 5"] # Safe measure if some months have 5 weeks
 
         for i, sheet_name in enumerate(data_dict.keys()):
             with tabs[i]:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- DYNAMIC DATA DETECTION ---
+                # --- DYNAMIC DATA DETECTION (IMPROVED) ---
                 active_m, active_w = "Jan", "WEEK 1"
                 data_cols = [c for c in df_26.columns if '_' in c]
                 for col in data_cols:
                     if df_26[col].sum() > 0: # Check if column has data
                         parts = col.split('_')
                         if len(parts) == 2:
-                            active_m, active_w = parts[0], parts[1]
+                            c_m, c_w = parts[0], parts[1]
+                            # Only set if it matches our standard list
+                            if c_m in months_list and c_w in weeks_list:
+                                active_m, active_w = c_m, c_w
                 
                 # Setup default indexes based on actual data
                 m_idx = months_list.index(active_m) if active_m in months_list else 0
@@ -162,7 +184,7 @@ try:
                 # 4. Summary Trend Overview
                 st.subheader("4. Summary Trends Overview (%)")
                 t4_res = [{'Ward': w, 'Monthly %': t1_res[idx]['% Inc/Dec'], 'Yearly %': t2_res[idx]['% Inc/Dec'], 'Cum %': t3_res[idx]['% Inc/Dec']} for idx, w in enumerate(wards)]
-                df4 = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([{'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'], 'Yearly %': df2.iloc[-1]['% Inc/Dec'], 'Cum %': df3.iloc[-1]['% Inc/Dec']}])], ignore_index=True)
+                df4 = pd.concat([pd.DataFrame(t4_res), pd.DataFrame([{'Ward':'Total', 'Monthly %': df1.iloc[-1]['% Inc/Dec'] if not df1.empty else "0 %", 'Yearly %': df2.iloc[-1]['% Inc/Dec'] if not df2.empty else "0 %", 'Cum %': df3.iloc[-1]['% Inc/Dec'] if not df3.empty else "0 %"}])], ignore_index=True)
                 st.table(df4)
 
                 # --- DASHBOARD VISUALIZATION ---
