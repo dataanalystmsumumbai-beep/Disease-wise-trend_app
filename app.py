@@ -23,29 +23,42 @@ def get_xlsx_url(url):
     return url
 
 # --- 2. Data Processing ---
-@st.cache_data
+# Added TTL of 60 seconds so cache automatically expires and fetches new data from Google Sheets
+@st.cache_data(ttl=60)
 def process_excel_data(_xls):
     all_data = {}
     for sheet in _xls.sheet_names:
         df_raw = pd.read_excel(_xls, sheet_name=sheet, header=None)
         
-        # --- CLEAN AND EXTRACT HEADERS ---
-        raw_months = df_raw.iloc[0, 2:].ffill().astype(str).str.strip().tolist()
-        months = [m[:3].capitalize() if m.lower() != 'nan' else 'Unknown' for m in raw_months]
+        # --- ROBUST MONTH DETECTION (Handles Text, Dates, and Auto-formats) ---
+        raw_months = df_raw.iloc[0, 2:].ffill().tolist()
+        months = []
+        for m in raw_months:
+            if pd.isna(m):
+                months.append("Unknown")
+                continue
+            
+            # If Google sheets parsed it as a real date/datetime object
+            dt = pd.to_datetime(m, errors='coerce')
+            if pd.notna(dt) and not isinstance(m, (int, float)):
+                months.append(dt.strftime('%b')) # Yields "Jan", "Feb", "May", etc.
+            else:
+                m_str = str(m).strip()
+                if m_str.lower() != 'nan' and m_str:
+                    months.append(m_str[:3].capitalize())
+                else:
+                    months.append("Unknown")
         
         raw_weeks = df_raw.iloc[1, 2:].astype(str).str.strip().str.upper().tolist()
         weeks = [w if w.lower() != 'nan' else 'Unknown' for w in raw_weeks]
         
-        # Strictly dynamic columns based on Month_Week
         cols = ['Ward', 'Total'] + [f"{m}_{w}" for m, w in zip(months, weeks)]
         data = df_raw.iloc[2:].copy()
         data.columns = cols[:len(data.columns)]
         
-        # Ensure 'Ward' column name is clean
         if 'Ward' not in data.columns and data.shape[1] > 0:
             data.rename(columns={data.columns[0]: 'Ward'}, inplace=True)
         
-        # Index splitting for 2025 and 2026 data
         ward_a_indices = data[data['Ward'] == 'A'].index.tolist()
         if len(ward_a_indices) >= 2:
             df_25 = data.loc[ward_a_indices[0]:ward_a_indices[1]-2].copy()
@@ -61,7 +74,7 @@ def process_excel_data(_xls):
         all_data[sheet] = {'25': df_25, '26': df_26}
     return all_data
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_from_url(url):
     xlsx_url = get_xlsx_url(url)
     xls = pd.ExcelFile(xlsx_url, engine='openpyxl')
@@ -111,6 +124,11 @@ st.sidebar.header("📁 Configuration")
 data_source_type = st.sidebar.radio("Data Source:", ("Google Sheet Link", "Local Excel File"))
 DEFAULT_URL = "https://docs.google.com/spreadsheets/d/11-ZeoBvixvY_ujLO8_9Vlze2jmGC4CooTWjvd2INX-4/edit"
 
+# FORCE REFRESH BUTTON (Clears Streamlit Cache completely)
+if st.sidebar.button("🔄 Force Refresh Data"):
+    st.cache_data.clear()
+    st.sidebar.success("Cache cleared! Fetching fresh data...")
+
 try:
     if data_source_type == "Google Sheet Link":
         user_url = st.sidebar.text_input("URL:", value=DEFAULT_URL)
@@ -123,7 +141,6 @@ try:
         st.title("📊 Health Infrastructure & Trend Analysis")
         tabs = st.tabs(list(data_dict.keys()))
         
-        # Strictly 4 weeks as per your sheet structure
         months_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"] 
 
@@ -132,21 +149,33 @@ try:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- NEW REVISED DETECTION (Looks for the absolute latest available column) ---
+                # --- ADVANCED DYNAMIC DETECTION (Scans for actual data points) ---
                 active_m, active_w = "Jan", "WEEK 1"
                 data_cols = [c for c in df_26.columns if '_' in c]
                 
+                # First look for latest column that actually contains filled data (sum > 0)
+                found_active = False
                 if data_cols:
-                    # Direct check from the last added column backwards to find valid month/week
                     for col in reversed(data_cols):
                         parts = col.split('_')
                         if len(parts) == 2:
                             c_m, c_w = parts[0], parts[1]
                             if c_m in months_list and c_w in weeks_list:
-                                active_m, active_w = c_m, c_w
-                                break # Found the latest added data column!
+                                if df_26[col].sum() > 0:
+                                    active_m, active_w = c_m, c_w
+                                    found_active = True
+                                    break
+                    
+                    # Fallback: if columns exist but are currently 0, just take the last structured column
+                    if not found_active:
+                        for col in reversed(data_cols):
+                            parts = col.split('_')
+                            if len(parts) == 2:
+                                c_m, c_w = parts[0], parts[1]
+                                if c_m in months_list and c_w in weeks_list:
+                                    active_m, active_w = c_m, c_w
+                                    break
 
-                # Setup default dropdown selections
                 m_idx = months_list.index(active_m) if active_m in months_list else 0
                 w_idx = weeks_list.index(active_w) if active_w in weeks_list else 0
                 prev_m_idx = max(0, m_idx - 1)
