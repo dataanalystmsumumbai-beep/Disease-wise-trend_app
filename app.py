@@ -29,29 +29,28 @@ def process_excel_data(_xls):
     for sheet in _xls.sheet_names:
         df_raw = pd.read_excel(_xls, sheet_name=sheet, header=None)
         
-        # --- ROBUST HEADER EXTRACTION (Fix for future months like May, Jun) ---
-        # Automatically clean and format months to strictly 3 letters (e.g., "MAY", "May ", "April" -> "May", "Apr")
+        # --- CLEAN AND EXTRACT HEADERS ---
         raw_months = df_raw.iloc[0, 2:].ffill().astype(str).str.strip().tolist()
         months = [m[:3].capitalize() if m.lower() != 'nan' else 'Unknown' for m in raw_months]
         
-        # Clean and format weeks (e.g., "WEEK 1", "week 1", "WEEK  1" -> "WEEK 1")
         raw_weeks = df_raw.iloc[1, 2:].astype(str).str.strip().str.upper().tolist()
-        weeks = [w.replace("  ", " ") if w.lower() != 'nan' else 'Unknown' for w in raw_weeks]
+        weeks = [w if w.lower() != 'nan' else 'Unknown' for w in raw_weeks]
         
+        # Strictly dynamic columns based on Month_Week
         cols = ['Ward', 'Total'] + [f"{m}_{w}" for m, w in zip(months, weeks)]
         data = df_raw.iloc[2:].copy()
         data.columns = cols[:len(data.columns)]
         
-        # Ensure column renaming if the source uses "Zone/Administrative Ward Name"
-        if 'Zone/Administrative Ward Name' in data.columns:
-            data.rename(columns={'Zone/Administrative Ward Name': 'Ward'}, inplace=True)
+        # Ensure 'Ward' column name is clean
+        if 'Ward' not in data.columns and data.shape[1] > 0:
+            data.rename(columns={data.columns[0]: 'Ward'}, inplace=True)
         
+        # Index splitting for 2025 and 2026 data
         ward_a_indices = data[data['Ward'] == 'A'].index.tolist()
         if len(ward_a_indices) >= 2:
             df_25 = data.loc[ward_a_indices[0]:ward_a_indices[1]-2].copy()
             df_26 = data.loc[ward_a_indices[1]-1:].copy()
         else:
-            # Safe Fallback just in case rows shift
             half = len(data) // 2
             df_25, df_26 = data.iloc[:half].copy(), data.iloc[half:].copy()
         
@@ -123,27 +122,31 @@ try:
     if data_dict:
         st.title("📊 Health Infrastructure & Trend Analysis")
         tabs = st.tabs(list(data_dict.keys()))
+        
+        # Strictly 4 weeks as per your sheet structure
         months_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4", "WEEK 5"] # Safe measure if some months have 5 weeks
+        weeks_list = ["WEEK 1", "WEEK 2", "WEEK 3", "WEEK 4"] 
 
         for i, sheet_name in enumerate(data_dict.keys()):
             with tabs[i]:
                 df_25, df_26 = data_dict[sheet_name]['25'], data_dict[sheet_name]['26']
                 wards = [w for w in df_26['Ward'].dropna().unique() if w not in ['Ward', 'Total', 'YEAR 2026', 'YEAR 2025']]
 
-                # --- DYNAMIC DATA DETECTION (IMPROVED) ---
+                # --- NEW REVISED DETECTION (Looks for the absolute latest available column) ---
                 active_m, active_w = "Jan", "WEEK 1"
                 data_cols = [c for c in df_26.columns if '_' in c]
-                for col in data_cols:
-                    if df_26[col].sum() > 0: # Check if column has data
+                
+                if data_cols:
+                    # Direct check from the last added column backwards to find valid month/week
+                    for col in reversed(data_cols):
                         parts = col.split('_')
                         if len(parts) == 2:
                             c_m, c_w = parts[0], parts[1]
-                            # Only set if it matches our standard list
                             if c_m in months_list and c_w in weeks_list:
                                 active_m, active_w = c_m, c_w
-                
-                # Setup default indexes based on actual data
+                                break # Found the latest added data column!
+
+                # Setup default dropdown selections
                 m_idx = months_list.index(active_m) if active_m in months_list else 0
                 w_idx = weeks_list.index(active_w) if active_w in weeks_list else 0
                 prev_m_idx = max(0, m_idx - 1)
